@@ -41,6 +41,7 @@ app = FastAPI(
     description="Client Management Service for VrdCapital PMS",
     docs_url="/docs" if settings.ENVIRONMENT != "production" else None,
     redoc_url="/redoc" if settings.ENVIRONMENT != "production" else None,
+    redirect_slashes=False,
     lifespan=lifespan,
 )
 

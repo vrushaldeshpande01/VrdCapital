@@ -1,4 +1,4 @@
-import math
+﻿import math
 from typing import Optional
 from uuid import UUID
 
@@ -15,7 +15,7 @@ from app.core.dependencies import get_current_user, require_admin, require_portf
 router = APIRouter(prefix="/users", tags=["Users"])
 
 
-@router.post("/", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def create_user(
     body: UserCreate,
     db: AsyncSession = Depends(get_db),
@@ -47,7 +47,7 @@ async def create_user(
     return user
 
 
-@router.get("/", response_model=UserListResponse)
+@router.get("", response_model=UserListResponse)
 async def list_users(
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),

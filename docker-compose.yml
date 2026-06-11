@@ -109,6 +109,32 @@ services:
       - vrdcapital-network
     restart: unless-stopped
 
+  portfolio-service:
+    build:
+      context: ./services/portfolio-service
+      dockerfile: Dockerfile
+    container_name: vrdcapital-portfolio
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-vrdcapital}:${POSTGRES_PASSWORD:-vrdcapital123}@postgres:5432/${POSTGRES_DB:-vrdcapital}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis123}@redis:6379/2
+      SECRET_KEY: ${SECRET_KEY:-supersecretkey-change-in-production}
+      AUTH_SERVICE_URL: http://auth-service:8000
+      CLIENT_SERVICE_URL: http://client-service:8000
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      SERVICE_NAME: portfolio-service
+    ports:
+      - "8003:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+    networks:
+      - vrdcapital-network
+    restart: unless-stopped
+
   nginx:
     image: nginx:alpine
     container_name: vrdcapital-nginx

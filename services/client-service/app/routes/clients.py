@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_
+from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.models.client import Client, BrokerAccount, ClientStatus
@@ -18,7 +19,7 @@ from app.core.dependencies import get_current_user, require_portfolio_manager, C
 router = APIRouter(prefix="/clients", tags=["Clients"])
 
 
-@router.post("/", response_model=ClientResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=ClientResponse, status_code=status.HTTP_201_CREATED)
 async def create_client(
     body: ClientCreate,
     db: AsyncSession = Depends(get_db),
@@ -39,11 +40,13 @@ async def create_client(
     )
     db.add(client)
     await db.flush()
-    await db.refresh(client)
-    return client
+    result = await db.execute(
+        select(Client).options(selectinload(Client.broker_accounts)).where(Client.id == client.id)
+    )
+    return result.scalar_one()
 
 
-@router.get("/", response_model=ClientListResponse)
+@router.get("", response_model=ClientListResponse)
 async def list_clients(
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
@@ -77,7 +80,7 @@ async def list_clients(
     count_result = await db.execute(select(func.count()).select_from(query.subquery()))
     total = count_result.scalar()
 
-    query = query.offset((page - 1) * size).limit(size).order_by(Client.created_at.desc())
+    query = query.options(selectinload(Client.broker_accounts)).offset((page - 1) * size).limit(size).order_by(Client.created_at.desc())
     result = await db.execute(query)
     clients = result.scalars().all()
 
@@ -126,7 +129,7 @@ async def get_client(
     current_user: CurrentUser = Depends(get_current_user),
 ):
     result = await db.execute(
-        select(Client).where(Client.id == client_id, Client.deleted_at == None)
+        select(Client).options(selectinload(Client.broker_accounts)).where(Client.id == client_id, Client.deleted_at == None)
     )
     client = result.scalar_one_or_none()
     if not client:
@@ -146,7 +149,7 @@ async def update_client(
     current_user: CurrentUser = Depends(require_portfolio_manager()),
 ):
     result = await db.execute(
-        select(Client).where(Client.id == client_id, Client.deleted_at == None)
+        select(Client).options(selectinload(Client.broker_accounts)).where(Client.id == client_id, Client.deleted_at == None)
     )
     client = result.scalar_one_or_none()
     if not client:
@@ -163,8 +166,10 @@ async def update_client(
         setattr(client, field, value)
 
     await db.flush()
-    await db.refresh(client)
-    return client
+    result = await db.execute(
+        select(Client).options(selectinload(Client.broker_accounts)).where(Client.id == client_id)
+    )
+    return result.scalar_one()
 
 
 @router.delete("/{client_id}", status_code=status.HTTP_204_NO_CONTENT)

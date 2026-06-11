@@ -5,10 +5,15 @@ import Layout from '@/components/Layout/Layout';
 import LoginPage from '@/pages/Login';
 import DashboardPage from '@/pages/Dashboard';
 import ClientsPage from '@/pages/Clients';
+import PortfolioPage from '@/pages/Portfolio';
 import ClientDetailPage from '@/pages/ClientDetail';
 import UsersPage from '@/pages/Users';
 import AuditLogsPage from '@/pages/AuditLogs';
 import SettingsPage from '@/pages/Settings';
+import OrdersPage from '@/pages/Orders';
+import BasketOrdersPage from '@/pages/BasketOrders';
+import ReportsPage from '@/pages/Reports';
+import NotificationsPage from '@/pages/Notifications';
 
 const theme = createTheme({
   palette: {
@@ -88,9 +93,14 @@ export default function App() {
           <Route path="dashboard" element={<DashboardPage />} />
           <Route path="clients" element={<ClientsPage />} />
           <Route path="clients/:id" element={<ClientDetailPage />} />
+          <Route path="portfolio" element={<PortfolioPage />} />
           <Route path="users" element={<UsersPage />} />
           <Route path="audit-logs" element={<AuditLogsPage />} />
           <Route path="settings" element={<SettingsPage />} />
+          <Route path="orders" element={<OrdersPage />} />
+          <Route path="basket-orders" element={<BasketOrdersPage />} />
+          <Route path="reports" element={<ReportsPage />} />
+          <Route path="notifications" element={<NotificationsPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
