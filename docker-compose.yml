@@ -135,6 +135,110 @@ services:
       - vrdcapital-network
     restart: unless-stopped
 
+  broker-service:
+    build:
+      context: ./services/broker-service
+      dockerfile: Dockerfile
+    container_name: vrdcapital-broker
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-vrdcapital}:${POSTGRES_PASSWORD:-vrdcapital123}@postgres:5432/${POSTGRES_DB:-vrdcapital}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis123}@redis:6379/3
+      SECRET_KEY: ${SECRET_KEY:-supersecretkey-change-in-production}
+      AUTH_SERVICE_URL: http://auth-service:8000
+      PORTFOLIO_SERVICE_URL: http://portfolio-service:8000
+      CLIENT_SERVICE_URL: http://client-service:8000
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      SERVICE_NAME: broker-service
+    ports:
+      - "8004:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+      portfolio-service:
+        condition: service_started
+    networks:
+      - vrdcapital-network
+    restart: unless-stopped
+
+  order-service:
+    build:
+      context: ./services/order-service
+      dockerfile: Dockerfile
+    container_name: vrdcapital-order
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-vrdcapital}:${POSTGRES_PASSWORD:-vrdcapital123}@postgres:5432/${POSTGRES_DB:-vrdcapital}
+      SECRET_KEY: ${SECRET_KEY:-supersecretkey-change-in-production}
+      AUTH_SERVICE_URL: http://auth-service:8000
+      BROKER_SERVICE_URL: http://broker-service:8000
+      CLIENT_SERVICE_URL: http://client-service:8000
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-vrdcapital}:${RABBITMQ_PASSWORD:-rabbitmq123}@rabbitmq:5672/
+    ports:
+      - "8005:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+      broker-service:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - vrdcapital-network
+    restart: unless-stopped
+
+  report-service:
+    build:
+      context: ./services/report-service
+      dockerfile: Dockerfile
+    container_name: vrdcapital-report
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-vrdcapital}:${POSTGRES_PASSWORD:-vrdcapital123}@postgres:5432/${POSTGRES_DB:-vrdcapital}
+      SECRET_KEY: ${SECRET_KEY:-supersecretkey-change-in-production}
+      AUTH_SERVICE_URL: http://auth-service:8000
+      PORTFOLIO_SERVICE_URL: http://portfolio-service:8000
+      CLIENT_SERVICE_URL: http://client-service:8000
+      ORDER_SERVICE_URL: http://order-service:8000
+    ports:
+      - "8007:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+      portfolio-service:
+        condition: service_started
+    networks:
+      - vrdcapital-network
+    restart: unless-stopped
+
+  notification-service:
+    build:
+      context: ./services/notification-service
+      dockerfile: Dockerfile
+    container_name: vrdcapital-notification
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-vrdcapital}:${POSTGRES_PASSWORD:-vrdcapital123}@postgres:5432/${POSTGRES_DB:-vrdcapital}
+      SECRET_KEY: ${SECRET_KEY:-supersecretkey-change-in-production}
+      AUTH_SERVICE_URL: http://auth-service:8000
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-vrdcapital}:${RABBITMQ_PASSWORD:-rabbitmq123}@rabbitmq:5672/
+    ports:
+      - "8006:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+    networks:
+      - vrdcapital-network
+    restart: unless-stopped
+
   nginx:
     image: nginx:alpine
     container_name: vrdcapital-nginx
@@ -163,10 +267,51 @@ services:
       - vrdcapital-network
     restart: unless-stopped
 
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: vrdcapital-prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.console.libraries=/etc/prometheus/console_libraries
+      - --web.console.templates=/etc/prometheus/consoles
+      - --storage.tsdb.retention.time=7d
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./deployment/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    networks:
+      - vrdcapital-network
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: vrdcapital-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-vrdcapital123}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_ROOT_URL: http://localhost/grafana/
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+    ports:
+      - "3001:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./deployment/monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deployment/monitoring/grafana/dashboards:/etc/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+    networks:
+      - vrdcapital-network
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   redis_data:
   rabbitmq_data:
+  prometheus_data:
+  grafana_data:
 
 networks:
   vrdcapital-network:

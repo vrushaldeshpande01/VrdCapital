@@ -2,11 +2,10 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   AppBar, Toolbar, IconButton, Typography, Box, Avatar,
-  Menu, MenuItem, ListItemIcon, Divider, Badge, Tooltip
+  Menu, MenuItem, ListItemIcon, Divider, Tooltip
 } from '@mui/material';
 import {
   Menu as MenuIcon,
-  Notifications as NotificationsIcon,
   AccountCircle,
   Logout,
   Settings,
@@ -15,6 +14,7 @@ import {
 import { useAppDispatch, useAppSelector } from '@/store';
 import { logout } from '@/store/authSlice';
 import { useSnackbar } from 'notistack';
+import { NotificationBell } from '@/components/NotificationBell';
 
 interface HeaderProps {
   drawerWidth: number;
@@ -60,13 +60,7 @@ export default function Header({ drawerWidth, onMenuClick }: HeaderProps) {
         <Box sx={{ flexGrow: 1 }} />
 
         {/* Notifications */}
-        <Tooltip title="Notifications">
-          <IconButton>
-            <Badge badgeContent={3} color="error">
-              <NotificationsIcon />
-            </Badge>
-          </IconButton>
-        </Tooltip>
+        <NotificationBell />
 
         {/* User menu */}
         <Box sx={{ ml: 1 }}>

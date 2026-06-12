@@ -159,6 +159,14 @@ async def update_client(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 
     update_data = body.model_dump(exclude_unset=True)
+
+    if "pan_number" in update_data and update_data["pan_number"]:
+        dup = await db.execute(
+            select(Client).where(Client.pan_number == update_data["pan_number"], Client.id != client_id, Client.deleted_at == None)
+        )
+        if dup.scalar_one_or_none():
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Another client already has this PAN number")
+
     if update_data.get("kyc_verified") and not client.kyc_verified:
         update_data["kyc_verified_at"] = datetime.now(timezone.utc)
 

@@ -7,7 +7,7 @@ import {
   Grid, MenuItem, CircularProgress, Alert,
 } from '@mui/material';
 import {
-  Search, Add, Edit, Delete, Visibility,
+  Search, Add, Visibility,
   CheckCircle, Cancel, FilterList,
 } from '@mui/icons-material';
 import { DataGrid, GridColDef } from '@mui/x-data-grid';
@@ -28,6 +28,79 @@ const STATUS_COLORS: Record<string, 'success' | 'default' | 'error' | 'warning'>
   suspended: 'error',
   onboarding: 'warning',
 };
+
+function EditClientDialog({ open, onClose, client }: { open: boolean; onClose: () => void; client: Client | null }) {
+  const queryClient = useQueryClient();
+  const { enqueueSnackbar } = useSnackbar();
+  const [form, setForm] = useState<Partial<CreateClientPayload>>(() => client ? {
+    full_name: client.full_name,
+    email: client.email,
+    phone: client.phone,
+    pan_number: client.pan_number || '',
+    risk_profile: client.risk_profile,
+    annual_income: client.annual_income ?? undefined,
+    investment_goal: client.investment_goal || '',
+    investment_horizon_years: client.investment_horizon_years ?? undefined,
+    notes: client.notes || '',
+  } : {});
+
+  const { mutate, isPending, error } = useMutation({
+    mutationFn: (payload: Partial<CreateClientPayload>) => clientsService.update(client!.id, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['clients'] });
+      enqueueSnackbar('Client updated successfully', { variant: 'success' });
+      onClose();
+    },
+  });
+
+  if (!client) return null;
+
+  const field = (label: string, key: keyof CreateClientPayload, type = 'text') => (
+    <TextField
+      fullWidth label={label} type={type} size="small"
+      value={form[key] || ''}
+      onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
+      sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
+    />
+  );
+
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
+      <form onSubmit={(e) => { e.preventDefault(); mutate(form); }}>
+        <DialogTitle sx={{ fontWeight: 700 }}>Edit Client — {client.full_name}</DialogTitle>
+        <DialogContent sx={{ pt: 2 }}>
+          {error && <Alert severity="error" sx={{ mb: 2 }}>{(error as any)?.response?.data?.detail || 'Update failed'}</Alert>}
+          <Grid container spacing={2}>
+            <Grid item xs={12} sm={6}>{field('Full Name', 'full_name')}</Grid>
+            <Grid item xs={12} sm={6}>{field('Email', 'email', 'email')}</Grid>
+            <Grid item xs={12} sm={6}>{field('Phone', 'phone', 'tel')}</Grid>
+            <Grid item xs={12} sm={6}>{field('PAN Number', 'pan_number')}</Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField fullWidth select label="Risk Profile" size="small"
+                value={form.risk_profile || 'moderate'}
+                onChange={(e) => setForm((f) => ({ ...f, risk_profile: e.target.value }))}
+                sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}>
+                <MenuItem value="conservative">Conservative</MenuItem>
+                <MenuItem value="moderate">Moderate</MenuItem>
+                <MenuItem value="aggressive">Aggressive</MenuItem>
+              </TextField>
+            </Grid>
+            <Grid item xs={12} sm={6}>{field('Annual Income (₹)', 'annual_income', 'number')}</Grid>
+            <Grid item xs={12} sm={6}>{field('Investment Horizon (Years)', 'investment_horizon_years', 'number')}</Grid>
+            <Grid item xs={12}>{field('Investment Goal', 'investment_goal')}</Grid>
+            <Grid item xs={12}>{field('Notes', 'notes')}</Grid>
+          </Grid>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.5 }}>
+          <Button onClick={onClose} sx={{ borderRadius: 2 }}>Cancel</Button>
+          <Button type="submit" variant="contained" disabled={isPending} sx={{ borderRadius: 2, px: 3 }}>
+            {isPending ? <CircularProgress size={18} color="inherit" /> : 'Save Changes'}
+          </Button>
+        </DialogActions>
+      </form>
+    </Dialog>
+  );
+}
 
 function CreateClientDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const queryClient = useQueryClient();
@@ -123,14 +196,6 @@ export default function ClientsPage() {
     queryFn: () => clientsService.list({ page: page + 1, size: pageSize, search: search || undefined }),
   });
 
-  const { mutate: deleteClient } = useMutation({
-    mutationFn: clientsService.delete,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['clients'] });
-      enqueueSnackbar('Client deleted', { variant: 'success' });
-    },
-  });
-
   const columns: GridColDef<Client>[] = [
     {
       field: 'full_name',
@@ -138,13 +203,13 @@ export default function ClientsPage() {
       flex: 1.5,
       minWidth: 180,
       renderCell: ({ row }) => (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, py: 0.5 }}>
-          <Avatar sx={{ width: 32, height: 32, bgcolor: 'primary.main', fontSize: '0.75rem' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, width: '100%', height: '100%' }}>
+          <Avatar sx={{ width: 36, height: 36, bgcolor: 'primary.main', fontSize: '0.85rem', flexShrink: 0 }}>
             {row.full_name.charAt(0)}
           </Avatar>
-          <Box>
-            <Typography variant="body2" fontWeight={600}>{row.full_name}</Typography>
-            <Typography variant="caption" color="text.secondary">{row.email}</Typography>
+          <Box sx={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', minWidth: 0 }}>
+            <Typography variant="body2" fontWeight={600} noWrap>{row.full_name}</Typography>
+            <Typography variant="caption" color="text.secondary" noWrap>{row.email}</Typography>
           </Box>
         </Box>
       ),
@@ -209,29 +274,14 @@ export default function ClientsPage() {
     {
       field: 'actions',
       headerName: 'Actions',
-      width: 110,
+      width: 80,
       sortable: false,
+      headerAlign: 'center',
       renderCell: ({ row }) => (
-        <Box sx={{ display: 'flex', gap: 0.5 }}>
+        <Box sx={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
           <Tooltip title="View">
             <IconButton size="small" onClick={() => navigate(`/clients/${row.id}`)}>
               <Visibility fontSize="small" />
-            </IconButton>
-          </Tooltip>
-          <Tooltip title="Edit">
-            <IconButton size="small" onClick={() => navigate(`/clients/${row.id}`)}>
-              <Edit fontSize="small" />
-            </IconButton>
-          </Tooltip>
-          <Tooltip title="Delete">
-            <IconButton
-              size="small"
-              color="error"
-              onClick={() => {
-                if (confirm(`Delete client ${row.full_name}?`)) deleteClient(row.id);
-              }}
-            >
-              <Delete fontSize="small" />
             </IconButton>
           </Tooltip>
         </Box>
@@ -285,12 +335,14 @@ export default function ClientsPage() {
             paginationModel={{ page, pageSize }}
             onPaginationModelChange={({ page: p }) => setPage(p)}
             pageSizeOptions={[20]}
+            rowHeight={64}
             disableRowSelectionOnClick
             autoHeight
             sx={{
               border: 'none',
-              '& .MuiDataGrid-cell': { borderBottom: '1px solid #f5f5f5' },
+              '& .MuiDataGrid-cell': { borderBottom: '1px solid #f5f5f5', alignItems: 'center' },
               '& .MuiDataGrid-columnHeaders': { bgcolor: '#fafafa', borderRadius: 1 },
+              '& .MuiDataGrid-row': { alignItems: 'center' },
             }}
           />
         </CardContent>

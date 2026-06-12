@@ -8,7 +8,7 @@ from sqlalchemy import select, and_
 
 from app.database import get_db
 from app.models.portfolio import Holding, HoldingStatus
-from app.schemas.portfolio import HoldingCreate, HoldingUpdate, HoldingResponse
+from app.schemas.portfolio import HoldingCreate, HoldingUpdate, HoldingResponse, BulkPriceUpdateRequest
 from app.services import calculations as calc
 from app.core.dependencies import get_current_user, require_portfolio_manager, CurrentUser
 
@@ -107,6 +107,29 @@ async def update_holding(
     return holding
 
 
+@router.patch("/{holding_id}/price", response_model=HoldingResponse)
+async def update_holding_price(
+    holding_id: UUID,
+    body: dict,
+    db: AsyncSession = Depends(get_db),
+    _: CurrentUser = Depends(require_portfolio_manager()),
+):
+    """Lightweight price-only update called by broker-service sync engine."""
+    result = await db.execute(select(Holding).where(Holding.id == holding_id))
+    holding = result.scalar_one_or_none()
+    if not holding:
+        raise HTTPException(status_code=404, detail="Holding not found")
+    if "current_price" in body:
+        holding.current_price = body["current_price"]
+        holding.last_price_updated_at = datetime.now(timezone.utc)
+    if "previous_close" in body:
+        holding.previous_close = body["previous_close"]
+    holding.recalculate()
+    await db.flush()
+    await db.refresh(holding)
+    return holding
+
+
 @router.delete("/{holding_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def close_holding(
     holding_id: UUID,
@@ -122,12 +145,11 @@ async def close_holding(
 
 @router.post("/price-update", status_code=status.HTTP_204_NO_CONTENT)
 async def bulk_price_update(
-    body: "BulkPriceUpdateRequest",
+    body: BulkPriceUpdateRequest,
     db: AsyncSession = Depends(get_db),
     _: CurrentUser = Depends(require_portfolio_manager()),
 ):
     """Update live prices for multiple symbols at once (called after market data sync)."""
-    from app.schemas.portfolio import BulkPriceUpdateRequest
     for price_data in body.prices:
         result = await db.execute(
             select(Holding).where(

@@ -1,0 +1,72 @@
+﻿{
+  "title": "VrdCapital Platform",
+  "uid": "vrdcapital-main",
+  "schemaVersion": 38,
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1, "type": "stat", "title": "Total HTTP Requests",
+      "gridPos": { "x": 0, "y": 0, "w": 4, "h": 4 },
+      "targets": [{ "expr": "sum(increase(http_requests_total[1h]))", "legendFormat": "Requests/hr" }],
+      "options": { "colorMode": "background", "graphMode": "area" },
+      "fieldConfig": { "defaults": { "thresholds": { "steps": [{"color":"green","value":0}] } } }
+    },
+    {
+      "id": 2, "type": "stat", "title": "Orders Placed (24h)",
+      "gridPos": { "x": 4, "y": 0, "w": 4, "h": 4 },
+      "targets": [{ "expr": "sum(increase(orders_placed_total[24h]))", "legendFormat": "Orders" }],
+      "options": { "colorMode": "background", "graphMode": "area" },
+      "fieldConfig": { "defaults": { "thresholds": { "steps": [{"color":"blue","value":0}] } } }
+    },
+    {
+      "id": 3, "type": "stat", "title": "Reports Generated (24h)",
+      "gridPos": { "x": 8, "y": 0, "w": 4, "h": 4 },
+      "targets": [{ "expr": "sum(increase(reports_generated_total[24h]))", "legendFormat": "Reports" }],
+      "options": { "colorMode": "background", "graphMode": "area" },
+      "fieldConfig": { "defaults": { "thresholds": { "steps": [{"color":"purple","value":0}] } } }
+    },
+    {
+      "id": 4, "type": "stat", "title": "Error Rate",
+      "gridPos": { "x": 12, "y": 0, "w": 4, "h": 4 },
+      "targets": [{ "expr": "sum(rate(http_requests_total{status=~\"5..\"}[5m])) / sum(rate(http_requests_total[5m])) * 100", "legendFormat": "%" }],
+      "options": { "colorMode": "background" },
+      "fieldConfig": { "defaults": { "unit": "percent", "thresholds": { "steps": [{"color":"green","value":0},{"color":"yellow","value":1},{"color":"red","value":5}] } } }
+    },
+    {
+      "id": 5, "type": "stat", "title": "Active WS Connections",
+      "gridPos": { "x": 16, "y": 0, "w": 4, "h": 4 },
+      "targets": [{ "expr": "sum(websocket_connections_active)", "legendFormat": "Connections" }],
+      "options": { "colorMode": "background" },
+      "fieldConfig": { "defaults": { "thresholds": { "steps": [{"color":"green","value":0}] } } }
+    },
+    {
+      "id": 6, "type": "timeseries", "title": "Request Rate by Service",
+      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+      "targets": [{ "expr": "sum by (service) (rate(http_requests_total[2m]))", "legendFormat": "{{service}}" }],
+      "options": { "legend": { "displayMode": "table", "placement": "bottom" } },
+      "fieldConfig": { "defaults": { "unit": "reqps" } }
+    },
+    {
+      "id": 7, "type": "timeseries", "title": "P95 Latency by Service (ms)",
+      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+      "targets": [{ "expr": "histogram_quantile(0.95, sum by (service, le) (rate(http_request_duration_seconds_bucket[2m]))) * 1000", "legendFormat": "{{service}}" }],
+      "options": { "legend": { "displayMode": "table", "placement": "bottom" } },
+      "fieldConfig": { "defaults": { "unit": "ms" } }
+    },
+    {
+      "id": 8, "type": "timeseries", "title": "Orders Placed Over Time",
+      "gridPos": { "x": 0, "y": 12, "w": 12, "h": 8 },
+      "targets": [
+        { "expr": "sum by (side) (increase(orders_placed_total[5m]))", "legendFormat": "{{side}}" },
+        { "expr": "sum by (status) (increase(orders_placed_total[5m]))", "legendFormat": "status:{{status}}" }
+      ]
+    },
+    {
+      "id": 9, "type": "timeseries", "title": "HTTP Error Rate by Service",
+      "gridPos": { "x": 12, "y": 12, "w": 12, "h": 8 },
+      "targets": [{ "expr": "sum by (service) (rate(http_requests_total{status=~\"[45]..\"}[2m]))", "legendFormat": "{{service}}" }],
+      "fieldConfig": { "defaults": { "unit": "reqps" } }
+    }
+  ]
+}

@@ -3,32 +3,35 @@ import {
   Box, Card, CardContent, Typography, Grid, Chip, TextField,
   InputAdornment, Avatar, LinearProgress, Tabs, Tab, Skeleton,
   Table, TableBody, TableRow, TableCell, TableHead, Alert,
+  MenuItem,
 } from '@mui/material';
-import { Search, TrendingUp, TrendingDown } from '@mui/icons-material';
+import { Search, TrendingUp, TrendingDown, Person } from '@mui/icons-material';
 import { useQuery } from '@tanstack/react-query';
 import {
   PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer,
   AreaChart, Area, XAxis, YAxis, CartesianGrid,
 } from 'recharts';
 import { portfolioService } from '@/api/portfolio';
+import { clientsService } from '@/api/clients';
 import type { Holding } from '@/types';
 
 const SECTOR_COLORS = ['#1a237e', '#00897b', '#f57c00', '#c62828', '#6a1b9a', '#37474f', '#0277bd'];
 
-// Demo client — replace with real client selector in production
-const DEMO_CLIENT = '00000000-0000-0000-0000-000000000001';
-
-function fmt(n: number | null | undefined, prefix = '₹') {
+function fmt(n: number | string | null | undefined, prefix = '₹') {
   if (n == null) return '—';
-  const abs = Math.abs(n);
-  if (abs >= 1e7) return `${prefix}${(n / 1e7).toFixed(2)} Cr`;
-  if (abs >= 1e5) return `${prefix}${(n / 1e5).toFixed(2)} L`;
-  return `${prefix}${n.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+  const num = Number(n);
+  if (isNaN(num)) return '—';
+  const abs = Math.abs(num);
+  if (abs >= 1e7) return `${prefix}${(num / 1e7).toFixed(2)} Cr`;
+  if (abs >= 1e5) return `${prefix}${(num / 1e5).toFixed(2)} L`;
+  return `${prefix}${num.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 }
 
-function fmtPct(n: number | null | undefined) {
+function fmtPct(n: number | string | null | undefined) {
   if (n == null) return '—';
-  return `${n >= 0 ? '+' : ''}${Number(n).toFixed(2)}%`;
+  const num = Number(n);
+  if (isNaN(num)) return '—';
+  return `${num >= 0 ? '+' : ''}${num.toFixed(2)}%`;
 }
 
 function PnLChip({ value }: { value: number | null }) {
@@ -63,22 +66,34 @@ function SummaryCard({ label, value, sub, loading }: { label: string; value: str
 export default function PortfolioPage() {
   const [tab, setTab] = useState(0);
   const [search, setSearch] = useState('');
+  const [selectedClientId, setSelectedClientId] = useState('');
+
+  const { data: clientList } = useQuery({
+    queryKey: ['clients-for-portfolio'],
+    queryFn: () => clientsService.list({ page: 1, size: 100 }),
+  });
+  const clients = clientList?.items || [];
+
+  const clientId = selectedClientId || clients[0]?.id || '';
 
   const { data: summary, isLoading: summaryLoading } = useQuery({
-    queryKey: ['portfolio-summary', DEMO_CLIENT],
-    queryFn: () => portfolioService.getSummary(DEMO_CLIENT),
+    queryKey: ['portfolio-summary', clientId],
+    queryFn: () => portfolioService.getSummary(clientId),
+    enabled: !!clientId,
     refetchInterval: 30_000,
   });
 
   const { data: holdings = [], isLoading: holdingsLoading } = useQuery({
-    queryKey: ['holdings', DEMO_CLIENT],
-    queryFn: () => portfolioService.getHoldings(DEMO_CLIENT),
+    queryKey: ['holdings', clientId],
+    queryFn: () => portfolioService.getHoldings(clientId),
+    enabled: !!clientId,
     refetchInterval: 30_000,
   });
 
   const { data: history = [] } = useQuery({
-    queryKey: ['portfolio-history', DEMO_CLIENT],
-    queryFn: () => portfolioService.getHistory(DEMO_CLIENT, 30),
+    queryKey: ['portfolio-history', clientId],
+    queryFn: () => portfolioService.getHistory(clientId, 30),
+    enabled: !!clientId,
   });
 
   const filtered = holdings.filter(
@@ -95,11 +110,23 @@ export default function PortfolioPage() {
 
   return (
     <Box>
-      <Box sx={{ mb: 3 }}>
-        <Typography variant="h5" fontWeight={700}>Portfolio</Typography>
-        <Typography variant="body2" color="text.secondary">
-          Holdings, positions, and P&amp;L analysis
-        </Typography>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 3, flexWrap: 'wrap', gap: 2 }}>
+        <Box>
+          <Typography variant="h5" fontWeight={700}>Portfolio</Typography>
+          <Typography variant="body2" color="text.secondary">
+            Holdings, positions, and P&amp;L analysis
+          </Typography>
+        </Box>
+        <TextField
+          select size="small" label="Client" value={selectedClientId || (clients[0]?.id ?? '')}
+          onChange={(e) => setSelectedClientId(e.target.value)}
+          InputProps={{ startAdornment: <Person sx={{ fontSize: 18, mr: 0.5, color: 'text.secondary' }} /> }}
+          sx={{ minWidth: 240, '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
+        >
+          {clients.map(c => (
+            <MenuItem key={c.id} value={c.id}>{c.full_name}</MenuItem>
+          ))}
+        </TextField>
       </Box>
 
       {/* Summary cards */}
@@ -242,7 +269,7 @@ export default function PortfolioPage() {
                         <Cell key={i} fill={SECTOR_COLORS[i % SECTOR_COLORS.length]} />
                       ))}
                     </Pie>
-                    <Tooltip formatter={(v: number) => [`${v.toFixed(1)}%`, 'Weight']} />
+                    <Tooltip formatter={(v: number) => [`${Number(v).toFixed(1)}%`, 'Weight']} />
                     <Legend iconType="circle" iconSize={10} />
                   </PieChart>
                 </ResponsiveContainer>
@@ -267,7 +294,7 @@ export default function PortfolioPage() {
                           </Box>
                         </TableCell>
                         <TableCell>{fmt(s.value)}</TableCell>
-                        <TableCell>{s.weight_pct.toFixed(1)}%</TableCell>
+                        <TableCell>{Number(s.weight_pct).toFixed(1)}%</TableCell>
                         <TableCell sx={{ width: 120 }}>
                           <LinearProgress
                             variant="determinate"
@@ -299,7 +326,7 @@ export default function PortfolioPage() {
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                   <XAxis dataKey="date" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
                   <YAxis tick={{ fontSize: 11 }} axisLine={false} tickLine={false} unit=" L" />
-                  <Tooltip formatter={(v: number) => [`₹${v.toFixed(2)} L`, 'Portfolio Value']} />
+                  <Tooltip formatter={(v: number) => [`₹${Number(v).toFixed(2)} L`, 'Portfolio Value']} />
                   <Area type="monotone" dataKey="value" stroke="#1a237e" strokeWidth={2.5} fill="url(#portfolioGrad)" />
                 </AreaChart>
               </ResponsiveContainer>

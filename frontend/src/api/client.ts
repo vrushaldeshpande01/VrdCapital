@@ -14,6 +14,24 @@ export const clientApi: AxiosInstance = axios.create({
   timeout: 10000,
 });
 
+export const brokerApi: AxiosInstance = axios.create({
+  baseURL: `${BASE_URL}/broker/api/v1`,
+  headers: { 'Content-Type': 'application/json' },
+  timeout: 15000,
+});
+
+export const orderApi: AxiosInstance = axios.create({
+  baseURL: `${BASE_URL}/orders/api/v1`,
+  headers: { 'Content-Type': 'application/json' },
+  timeout: 15000,
+});
+
+export const notificationApi: AxiosInstance = axios.create({
+  baseURL: `${BASE_URL}/notifications/api/v1`,
+  headers: { 'Content-Type': 'application/json' },
+  timeout: 10000,
+});
+
 const attachToken = (config: InternalAxiosRequestConfig): InternalAxiosRequestConfig => {
   const token = localStorage.getItem('access_token');
   if (token) {
@@ -24,6 +42,9 @@ const attachToken = (config: InternalAxiosRequestConfig): InternalAxiosRequestCo
 
 authApi.interceptors.request.use(attachToken);
 clientApi.interceptors.request.use(attachToken);
+brokerApi.interceptors.request.use(attachToken);
+orderApi.interceptors.request.use(attachToken);
+notificationApi.interceptors.request.use(attachToken);
 
 const handleTokenRefresh = async (error: AxiosError, instance: AxiosInstance) => {
   const original = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
@@ -52,4 +73,16 @@ authApi.interceptors.response.use(
 clientApi.interceptors.response.use(
   (r) => r,
   (err) => handleTokenRefresh(err, clientApi),
+);
+brokerApi.interceptors.response.use(
+  (r) => r,
+  (err) => handleTokenRefresh(err, brokerApi),
+);
+orderApi.interceptors.response.use(
+  (r) => r,
+  (err) => handleTokenRefresh(err, orderApi),
+);
+notificationApi.interceptors.response.use(
+  (r) => r,
+  (err) => handleTokenRefresh(err, notificationApi),
 );

@@ -238,6 +238,31 @@ async def get_cash_balance(
     }
 
 
+@router.post("/cash")
+async def upsert_cash_balance_body(
+    body: dict,
+    db: AsyncSession = Depends(get_db),
+    _: CurrentUser = Depends(require_portfolio_manager()),
+):
+    """Called by broker-service sync engine with {client_id, broker_account_id, ...}"""
+    from datetime import datetime, timezone
+    client_id = UUID(body["client_id"])
+    broker_account_id = UUID(body["broker_account_id"])
+    result = await db.execute(
+        select(CashBalance).where(CashBalance.broker_account_id == broker_account_id)
+    )
+    balance = result.scalar_one_or_none()
+    if not balance:
+        balance = CashBalance(client_id=client_id, broker_account_id=broker_account_id)
+        db.add(balance)
+    balance.available_cash = body.get("available_cash", 0)
+    balance.used_margin = body.get("used_margin", 0)
+    balance.total_balance = body.get("total_balance", 0)
+    balance.last_synced_at = datetime.now(timezone.utc)
+    await db.flush()
+    return {"message": "Cash balance updated"}
+
+
 @router.post("/cash/{client_id}/{broker_account_id}")
 async def upsert_cash_balance(
     client_id: UUID,

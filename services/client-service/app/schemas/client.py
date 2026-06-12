@@ -77,6 +77,7 @@ class ClientCreate(BaseModel):
 class ClientUpdate(BaseModel):
     full_name: Optional[str] = Field(None, min_length=2, max_length=200)
     phone: Optional[str] = Field(None, min_length=10, max_length=20)
+    pan_number: Optional[str] = Field(None, pattern=r"^[A-Z]{5}[0-9]{4}[A-Z]{1}$")
     date_of_birth: Optional[date] = None
     address: Optional[str] = None
     city: Optional[str] = None

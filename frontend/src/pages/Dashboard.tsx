@@ -22,17 +22,21 @@ const RECENT_ORDERS = [
   { id: 5, client: 'Vikram Singh', symbol: 'WIPRO', type: 'SELL', qty: 75, price: 485.60, status: 'CANCELLED', time: '02:22 PM' },
 ];
 
-function fmt(n: number | null | undefined, prefix = '₹') {
+function fmt(n: number | string | null | undefined, prefix = '₹') {
   if (n == null) return '—';
-  const abs = Math.abs(n);
-  if (abs >= 1e7) return `${prefix}${(n / 1e7).toFixed(2)} Cr`;
-  if (abs >= 1e5) return `${prefix}${(n / 1e5).toFixed(2)} L`;
-  return `${prefix}${n.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+  const num = Number(n);
+  if (isNaN(num)) return '—';
+  const abs = Math.abs(num);
+  if (abs >= 1e7) return `${prefix}${(num / 1e7).toFixed(2)} Cr`;
+  if (abs >= 1e5) return `${prefix}${(num / 1e5).toFixed(2)} L`;
+  return `${prefix}${num.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 }
 
-function fmtPct(n: number | null | undefined) {
+function fmtPct(n: number | string | null | undefined) {
   if (n == null) return '—';
-  return `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`;
+  const num = Number(n);
+  if (isNaN(num)) return '—';
+  return `${num >= 0 ? '+' : ''}${num.toFixed(2)}%`;
 }
 
 interface StatCardProps {
@@ -94,17 +98,24 @@ export default function DashboardPage() {
     refetchInterval: 60_000,
   });
 
-  const DEMO_CLIENT = '00000000-0000-0000-0000-000000000001';
+  const { data: clientList } = useQuery({
+    queryKey: ['clients', 1, ''],
+    queryFn: () => clientsService.list({ page: 1, size: 1 }),
+    retry: 1,
+  });
+  const firstClientId = clientList?.items?.[0]?.id;
 
   const { data: history } = useQuery({
-    queryKey: ['portfolio-history', DEMO_CLIENT],
-    queryFn: () => portfolioService.getHistory(DEMO_CLIENT, 12),
+    queryKey: ['portfolio-history', firstClientId],
+    queryFn: () => portfolioService.getHistory(firstClientId!, 12),
+    enabled: !!firstClientId,
     retry: 1,
   });
 
   const { data: summary } = useQuery({
-    queryKey: ['portfolio-summary', DEMO_CLIENT],
-    queryFn: () => portfolioService.getSummary(DEMO_CLIENT),
+    queryKey: ['portfolio-summary', firstClientId],
+    queryFn: () => portfolioService.getSummary(firstClientId!),
+    enabled: !!firstClientId,
     retry: 1,
   });
 
@@ -230,7 +241,7 @@ export default function DashboardPage() {
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                   <XAxis dataKey="date" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
                   <YAxis tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
-                  <Tooltip formatter={(v: number) => [`₹${v.toFixed(2)} L`, 'Value']} />
+                  <Tooltip formatter={(v: number) => [`₹${Number(v).toFixed(2)} L`, 'Value']} />
                   <Area type="monotone" dataKey="value" stroke="#1a237e" strokeWidth={2.5} fill="url(#grad)" />
                 </AreaChart>
               </ResponsiveContainer>
@@ -257,7 +268,7 @@ export default function DashboardPage() {
                     </Pie>
                     <Legend iconType="circle" iconSize={8}
                       formatter={(v) => <span style={{ fontSize: 11 }}>{v}</span>} />
-                    <Tooltip formatter={(v: number) => [`${v.toFixed(1)}%`, 'Weight']} />
+                    <Tooltip formatter={(v: number) => [`${Number(v).toFixed(1)}%`, 'Weight']} />
                   </PieChart>
                 </ResponsiveContainer>
               )}
@@ -299,7 +310,7 @@ export default function DashboardPage() {
                           sx={{ height: 20, fontSize: 11 }}
                         />
                       </td>
-                      <td style={{ padding: '10px 12px', fontSize: 12, color: '#666' }}>{h.weight_pct.toFixed(1)}%</td>
+                      <td style={{ padding: '10px 12px', fontSize: 12, color: '#666' }}>{Number(h.weight_pct).toFixed(1)}%</td>
                     </tr>
                   ))}
                 </tbody>

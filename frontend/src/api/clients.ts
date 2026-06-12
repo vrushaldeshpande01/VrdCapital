@@ -13,11 +13,15 @@ export interface CreateClientPayload {
   email: string;
   phone: string;
   pan_number?: string;
+  date_of_birth?: string;
+  city?: string;
+  state?: string;
   risk_profile?: string;
   annual_income?: number;
   investment_goal?: string;
   investment_horizon_years?: number;
   notes?: string;
+  kyc_verified?: boolean;
 }
 
 export interface ClientStats {

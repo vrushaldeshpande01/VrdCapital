@@ -10,7 +10,7 @@ from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_
 
 from app.config import get_settings
 from app.database import engine, Base
-from app.routes import auth, users
+from app.routes import auth, users, system
 
 settings = get_settings()
 
@@ -115,6 +115,7 @@ async def logging_middleware(request: Request, call_next):
 # Routers
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(users.router, prefix="/api/v1")
+app.include_router(system.router, prefix="/api/v1")
 
 
 # Health endpoints (required for K8s)

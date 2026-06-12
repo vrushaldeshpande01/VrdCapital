@@ -2,17 +2,350 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   Box, Card, CardContent, Typography, Grid, Chip, Button,
   Avatar, Divider, Tab, Tabs, Table, TableBody, TableRow,
-  TableCell, IconButton,
+  TableCell, IconButton, Dialog, DialogTitle, DialogContent,
+  DialogActions, TextField, MenuItem, Switch, FormControlLabel,
+  Alert, LinearProgress, Tooltip, CircularProgress,
 } from '@mui/material';
-import { ArrowBack, Edit, CheckCircle, Cancel } from '@mui/icons-material';
-import { useQuery } from '@tanstack/react-query';
+import {
+  ArrowBack, Edit, CheckCircle, Cancel, Add, Sync,
+  Delete, Link as LinkIcon, LinkOff, PlayArrow, History,
+} from '@mui/icons-material';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useSnackbar } from 'notistack';
 import { clientsService } from '@/api/clients';
+import { brokerService, BrokerCredential } from '@/api/broker';
 import { useState } from 'react';
+
+const BROKER_COLORS: Record<string, string> = {
+  zerodha: '#387ED1',
+  upstox: '#5367FF',
+  angelone: '#E30613',
+};
+
+const BROKER_LABELS: Record<string, string> = {
+  zerodha: 'Zerodha',
+  upstox: 'Upstox',
+  angelone: 'AngelOne',
+};
+
+function BrokerIcon({ broker, size = 36 }: { broker: string; size?: number }) {
+  return (
+    <Box sx={{
+      width: size, height: size, borderRadius: 1.5,
+      bgcolor: `${BROKER_COLORS[broker]}18`,
+      display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+    }}>
+      <Typography variant="caption" fontWeight={800} sx={{ color: BROKER_COLORS[broker], fontSize: size * 0.28 }}>
+        {broker.slice(0, 2).toUpperCase()}
+      </Typography>
+    </Box>
+  );
+}
+
+function AddCredentialDialog({ clientId, open, onClose }: { clientId: string; open: boolean; onClose: () => void }) {
+  const { enqueueSnackbar } = useSnackbar();
+  const qc = useQueryClient();
+  const [form, setForm] = useState({
+    broker: 'zerodha', account_id: '', display_name: '',
+    api_key: '', api_secret: '', is_sandbox: true,
+  });
+
+  const { mutate, isPending } = useMutation({
+    mutationFn: () => brokerService.addCredential({ ...form, client_id: clientId }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['broker-credentials', clientId] });
+      enqueueSnackbar('Broker account linked successfully', { variant: 'success' });
+      onClose();
+    },
+    onError: (e: any) => enqueueSnackbar(e?.response?.data?.detail || 'Failed to add broker account', { variant: 'error' }),
+  });
+
+  const set = (k: string, v: any) => setForm(f => ({ ...f, [k]: v }));
+
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+      <DialogTitle sx={{ fontWeight: 700 }}>Link Broker Account</DialogTitle>
+      <DialogContent sx={{ pt: 1 }}>
+        <Grid container spacing={2} sx={{ mt: 0.5 }}>
+          <Grid item xs={12}>
+            <TextField select fullWidth size="small" label="Broker" value={form.broker} onChange={e => set('broker', e.target.value)}>
+              <MenuItem value="zerodha">Zerodha (KiteConnect)</MenuItem>
+              <MenuItem value="upstox">Upstox V2</MenuItem>
+              <MenuItem value="angelone">AngelOne (SmartAPI)</MenuItem>
+            </TextField>
+          </Grid>
+          <Grid item xs={12} sm={6}>
+            <TextField fullWidth size="small" label="Account / Client ID *" value={form.account_id}
+              onChange={e => set('account_id', e.target.value)} />
+          </Grid>
+          <Grid item xs={12} sm={6}>
+            <TextField fullWidth size="small" label="Display Name" value={form.display_name}
+              onChange={e => set('display_name', e.target.value)} placeholder={`${BROKER_LABELS[form.broker]} - ${form.account_id || 'ID'}`} />
+          </Grid>
+          <Grid item xs={12}>
+            <FormControlLabel
+              control={<Switch checked={form.is_sandbox} onChange={e => set('is_sandbox', e.target.checked)} color="warning" />}
+              label={
+                <Box>
+                  <Typography variant="body2" fontWeight={600}>Sandbox Mode {form.is_sandbox ? '(ON)' : '(OFF)'}</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {form.is_sandbox
+                      ? 'Uses realistic mock data — no real credentials needed'
+                      : 'Calls real broker API — API key required'}
+                  </Typography>
+                </Box>
+              }
+            />
+          </Grid>
+          {!form.is_sandbox && (
+            <>
+              <Grid item xs={12}>
+                <Alert severity="info" sx={{ fontSize: 12 }}>
+                  Live mode: enter your broker API credentials. Keys are AES-256 encrypted at rest.
+                </Alert>
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField fullWidth size="small" label="API Key" value={form.api_key}
+                  onChange={e => set('api_key', e.target.value)} type="password" />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField fullWidth size="small" label="API Secret" value={form.api_secret}
+                  onChange={e => set('api_secret', e.target.value)} type="password" />
+              </Grid>
+            </>
+          )}
+        </Grid>
+      </DialogContent>
+      <DialogActions sx={{ px: 3, pb: 2, gap: 1 }}>
+        <Button onClick={onClose} sx={{ borderRadius: 2 }}>Cancel</Button>
+        <Button variant="contained" onClick={() => mutate()} disabled={!form.account_id || isPending}
+          startIcon={isPending ? <CircularProgress size={16} /> : <LinkIcon />} sx={{ borderRadius: 2 }}>
+          Link Account
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+function BrokerCard({ cred, clientId }: { cred: BrokerCredential; clientId: string }) {
+  const { enqueueSnackbar } = useSnackbar();
+  const qc = useQueryClient();
+  const [testing, setTesting] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+
+  const handleTest = async () => {
+    setTesting(true);
+    try {
+      const res = await brokerService.testConnection(cred.id);
+      const d = (res as any).data;
+      if (d.success) enqueueSnackbar(`✓ ${d.message}`, { variant: 'success' });
+      else enqueueSnackbar(`✗ ${d.message}`, { variant: 'error' });
+    } catch { enqueueSnackbar('Connection test failed', { variant: 'error' }); }
+    setTesting(false);
+  };
+
+  const handleSync = async () => {
+    setSyncing(true);
+    try {
+      const res = await brokerService.triggerSync(clientId);
+      const d = (res as any).data as any;
+      enqueueSnackbar(
+        `Sync complete — ${d.holdings_synced} holdings, ${d.prices_updated} prices updated`,
+        { variant: 'success' }
+      );
+      qc.invalidateQueries({ queryKey: ['broker-credentials', clientId] });
+    } catch { enqueueSnackbar('Sync failed', { variant: 'error' }); }
+    setSyncing(false);
+  };
+
+  const { mutate: deleteCred } = useMutation({
+    mutationFn: () => brokerService.deleteCredential(cred.id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['broker-credentials', clientId] });
+      enqueueSnackbar('Broker account removed', { variant: 'info' });
+    },
+  });
+
+  const lastSync = cred.last_sync_at
+    ? new Date(cred.last_sync_at).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' })
+    : 'Never';
+
+  return (
+    <Card variant="outlined" sx={{ mb: 1.5, borderColor: cred.is_active ? 'divider' : 'error.light' }}>
+      <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+        <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5 }}>
+          <BrokerIcon broker={cred.broker} size={40} />
+          <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+              <Typography variant="body2" fontWeight={700}>{cred.display_name}</Typography>
+              <Chip
+                label={cred.is_sandbox ? 'Sandbox' : 'Live'}
+                size="small"
+                color={cred.is_sandbox ? 'warning' : 'success'}
+                sx={{ height: 18, fontSize: 10 }}
+              />
+              {cred.last_sync_status && (
+                <Chip
+                  label={cred.last_sync_status}
+                  size="small"
+                  color={cred.last_sync_status === 'success' ? 'success' : 'error'}
+                  variant="outlined"
+                  sx={{ height: 18, fontSize: 10 }}
+                />
+              )}
+            </Box>
+            <Typography variant="caption" color="text.secondary">
+              ID: {cred.account_id} · Last sync: {lastSync} · {cred.total_syncs} syncs
+            </Typography>
+            {syncing && <LinearProgress sx={{ mt: 0.5, borderRadius: 1 }} />}
+          </Box>
+          <Box sx={{ display: 'flex', gap: 0.5, flexShrink: 0 }}>
+            <Tooltip title="Test Connection">
+              <IconButton size="small" onClick={handleTest} disabled={testing}>
+                {testing ? <CircularProgress size={16} /> : <LinkIcon fontSize="small" />}
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Sync Holdings">
+              <IconButton size="small" onClick={handleSync} disabled={syncing} color="primary">
+                {syncing ? <CircularProgress size={16} /> : <Sync fontSize="small" />}
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Remove">
+              <IconButton size="small" color="error" onClick={() => deleteCred()}>
+                <Delete fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </Box>
+        </Box>
+      </CardContent>
+    </Card>
+  );
+}
+
+function EditClientDetailDialog({
+  open, onClose, client, onSaved,
+}: {
+  open: boolean;
+  onClose: () => void;
+  client: import('@/types').Client;
+  onSaved: () => void;
+}) {
+  const { enqueueSnackbar } = useSnackbar();
+  const [form, setForm] = useState({
+    full_name: client.full_name,
+    email: client.email,
+    phone: client.phone,
+    pan_number: client.pan_number || '',
+    date_of_birth: client.date_of_birth || '',
+    city: client.city || '',
+    state: client.state || '',
+    risk_profile: client.risk_profile,
+    annual_income: client.annual_income?.toString() || '',
+    investment_goal: client.investment_goal || '',
+    investment_horizon_years: client.investment_horizon_years?.toString() || '',
+    notes: client.notes || '',
+  });
+
+  const { mutate, isPending } = useMutation({
+    mutationFn: () => clientsService.update(client.id, {
+      full_name: form.full_name,
+      email: form.email,
+      phone: form.phone,
+      pan_number: form.pan_number || undefined,
+      date_of_birth: form.date_of_birth || undefined,
+      city: form.city || undefined,
+      state: form.state || undefined,
+      risk_profile: form.risk_profile as any,
+      annual_income: form.annual_income ? Number(form.annual_income) : undefined,
+      investment_goal: form.investment_goal || undefined,
+      investment_horizon_years: form.investment_horizon_years ? Number(form.investment_horizon_years) : undefined,
+      notes: form.notes || undefined,
+    }),
+    onSuccess: () => {
+      onSaved();
+      enqueueSnackbar('Client updated successfully', { variant: 'success' });
+      onClose();
+    },
+    onError: (e: any) => enqueueSnackbar(e?.response?.data?.detail || 'Update failed', { variant: 'error' }),
+  });
+
+  const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setForm(f => ({ ...f, [k]: e.target.value }));
+
+  const tf = (label: string, key: keyof typeof form, type = 'text', half = true) => (
+    <Grid item xs={12} sm={half ? 6 : 12}>
+      <TextField fullWidth label={label} type={type} size="small" value={form[key]}
+        onChange={set(key)}
+        InputLabelProps={type === 'date' ? { shrink: true } : undefined}
+        inputProps={type === 'date' ? { min: '1900-01-01', max: '2030-12-31' } : undefined}
+        sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
+    </Grid>
+  );
+
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth scroll="paper"
+      PaperProps={{ sx: { borderRadius: 3 } }}>
+      <form onSubmit={(e) => { e.preventDefault(); mutate(); }}>
+        <DialogTitle sx={{ fontWeight: 700 }}>Edit Client — {client.full_name}</DialogTitle>
+        <DialogContent dividers sx={{ pt: 2 }}>
+          <Grid container spacing={2}>
+            {tf('Full Name', 'full_name')}
+            {tf('Email', 'email', 'email')}
+            {tf('Phone', 'phone', 'tel')}
+            <Grid item xs={12} sm={6}>
+              <TextField fullWidth label="PAN Number" size="small"
+                value={form.pan_number}
+                onChange={(e) => setForm(f => ({ ...f, pan_number: e.target.value.toUpperCase() }))}
+                placeholder="ABCDE1234F"
+                helperText="Format: 5 letters, 4 digits, 1 letter (e.g. ABCDE1234F)"
+                inputProps={{ maxLength: 10, style: { letterSpacing: 2 } }}
+                sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
+            </Grid>
+            {tf('Date of Birth', 'date_of_birth', 'date')}
+            <Grid item xs={12} sm={6}>
+              <TextField fullWidth select label="Risk Profile" size="small" value={form.risk_profile}
+                onChange={set('risk_profile')} sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}>
+                <MenuItem value="conservative">Conservative</MenuItem>
+                <MenuItem value="moderate">Moderate</MenuItem>
+                <MenuItem value="aggressive">Aggressive</MenuItem>
+              </TextField>
+            </Grid>
+            {tf('City', 'city')}
+            {tf('State', 'state')}
+            {tf('Annual Income (₹)', 'annual_income', 'number')}
+            {tf('Investment Horizon (Years)', 'investment_horizon_years', 'number')}
+            {tf('Investment Goal', 'investment_goal', 'text', false)}
+            {tf('Notes', 'notes', 'text', false)}
+          </Grid>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.5 }}>
+          <Button onClick={onClose} sx={{ borderRadius: 2 }}>Cancel</Button>
+          <Button type="submit" variant="contained" disabled={isPending} sx={{ borderRadius: 2, px: 3 }}>
+            {isPending ? <CircularProgress size={18} color="inherit" /> : 'Save Changes'}
+          </Button>
+        </DialogActions>
+      </form>
+    </Dialog>
+  );
+}
 
 export default function ClientDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { enqueueSnackbar } = useSnackbar();
+  const qc = useQueryClient();
   const [tab, setTab] = useState(0);
+  const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+
+  const { mutate: toggleKyc, isPending: kycPending } = useMutation({
+    mutationFn: (verified: boolean) => clientsService.update(id!, { kyc_verified: verified } as any),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['client', id] });
+      enqueueSnackbar('KYC status updated', { variant: 'success' });
+    },
+    onError: () => enqueueSnackbar('Failed to update KYC status', { variant: 'error' }),
+  });
 
   const { data: client, isLoading } = useQuery({
     queryKey: ['client', id],
@@ -20,14 +353,19 @@ export default function ClientDetailPage() {
     enabled: !!id,
   });
 
+  const { data: credentials = [] } = useQuery({
+    queryKey: ['broker-credentials', id],
+    queryFn: async () => {
+      const res = await brokerService.listCredentials(id!);
+      return (res as any).data as BrokerCredential[];
+    },
+    enabled: !!id,
+  });
+
   if (isLoading) return <Box sx={{ p: 3 }}><Typography>Loading...</Typography></Box>;
   if (!client) return <Box sx={{ p: 3 }}><Typography>Client not found</Typography></Box>;
 
-  const BROKER_COLORS: Record<string, string> = {
-    zerodha: '#387ED1',
-    upstox: '#5367FF',
-    angelone: '#E30613',
-  };
+  const activeCredentials = credentials.filter(c => c.is_active);
 
   return (
     <Box>
@@ -37,11 +375,11 @@ export default function ClientDetailPage() {
           <Typography variant="h5" fontWeight={700}>{client.full_name}</Typography>
           <Typography variant="body2" color="text.secondary">{client.email}</Typography>
         </Box>
-        <Button variant="outlined" startIcon={<Edit />} sx={{ borderRadius: 2 }}>Edit</Button>
+        <Button variant="outlined" startIcon={<Edit />} onClick={() => setEditOpen(true)} sx={{ borderRadius: 2 }}>Edit</Button>
       </Box>
 
       <Grid container spacing={2.5}>
-        {/* Profile card */}
+        {/* Left column */}
         <Grid item xs={12} md={4}>
           <Card>
             <CardContent sx={{ p: 3, textAlign: 'center' }}>
@@ -52,13 +390,20 @@ export default function ClientDetailPage() {
               <Typography variant="body2" color="text.secondary" gutterBottom>{client.email}</Typography>
               <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center', flexWrap: 'wrap', mt: 1 }}>
                 <Chip label={client.status} size="small" color={client.status === 'active' ? 'success' : 'default'} />
-                <Chip
-                  label={client.kyc_verified ? 'KYC Verified' : 'KYC Pending'}
-                  size="small"
-                  icon={client.kyc_verified ? <CheckCircle sx={{ fontSize: '14px !important' }} /> : <Cancel sx={{ fontSize: '14px !important' }} />}
-                  color={client.kyc_verified ? 'success' : 'warning'}
-                  variant="outlined"
-                />
+                <Tooltip title={!client.pan_number ? 'PAN card details required to update KYC' : ''}>
+                  <span>
+                    <Chip
+                      label={client.kyc_verified ? 'KYC Verified' : 'KYC Pending'}
+                      size="small"
+                      icon={client.kyc_verified ? <CheckCircle sx={{ fontSize: '14px !important' }} /> : <Cancel sx={{ fontSize: '14px !important' }} />}
+                      color={client.kyc_verified ? 'success' : 'warning'}
+                      variant="outlined"
+                      onClick={client.pan_number ? () => toggleKyc(!client.kyc_verified) : undefined}
+                      disabled={kycPending || !client.pan_number}
+                      sx={{ cursor: client.pan_number ? 'pointer' : 'not-allowed' }}
+                    />
+                  </span>
+                </Tooltip>
               </Box>
             </CardContent>
           </Card>
@@ -66,46 +411,44 @@ export default function ClientDetailPage() {
           {/* Broker Accounts */}
           <Card sx={{ mt: 2 }}>
             <CardContent sx={{ p: 2.5 }}>
-              <Typography variant="subtitle2" fontWeight={700} gutterBottom>
-                Broker Accounts
-              </Typography>
-              {client.broker_accounts.length === 0 ? (
-                <Typography variant="body2" color="text.secondary">No broker accounts linked</Typography>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
+                <Typography variant="subtitle2" fontWeight={700}>
+                  Broker Accounts
+                  {activeCredentials.length > 0 && (
+                    <Chip label={activeCredentials.length} size="small" color="primary" sx={{ ml: 1, height: 18, fontSize: 10 }} />
+                  )}
+                </Typography>
+                <Button size="small" startIcon={<Add />} onClick={() => setAddDialogOpen(true)}
+                  variant="outlined" sx={{ borderRadius: 2, py: 0.3, fontSize: 12 }}>
+                  Link
+                </Button>
+              </Box>
+              {activeCredentials.length === 0 ? (
+                <Box sx={{ textAlign: 'center', py: 2 }}>
+                  <LinkOff sx={{ fontSize: 32, color: 'text.disabled', mb: 0.5 }} />
+                  <Typography variant="body2" color="text.secondary">No brokers linked</Typography>
+                  <Button size="small" startIcon={<Add />} onClick={() => setAddDialogOpen(true)} sx={{ mt: 1 }}>
+                    Link Broker
+                  </Button>
+                </Box>
               ) : (
-                client.broker_accounts.map((acc) => (
-                  <Box key={acc.id} sx={{ display: 'flex', alignItems: 'center', gap: 1.5, py: 1, borderBottom: '1px solid #f5f5f5' }}>
-                    <Box
-                      sx={{
-                        width: 32, height: 32, borderRadius: 1,
-                        bgcolor: `${BROKER_COLORS[acc.broker]}20`,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      }}
-                    >
-                      <Typography variant="caption" fontWeight={700} sx={{ color: BROKER_COLORS[acc.broker], fontSize: '0.65rem' }}>
-                        {acc.broker.slice(0, 2).toUpperCase()}
-                      </Typography>
-                    </Box>
-                    <Box sx={{ flexGrow: 1 }}>
-                      <Typography variant="body2" fontWeight={600}>{acc.broker.charAt(0).toUpperCase() + acc.broker.slice(1)}</Typography>
-                      <Typography variant="caption" color="text.secondary">{acc.account_id}</Typography>
-                    </Box>
-                    <Chip label={acc.status} size="small" color={acc.status === 'active' ? 'success' : 'default'} sx={{ height: 18, fontSize: 10 }} />
-                  </Box>
+                activeCredentials.map(cred => (
+                  <BrokerCard key={cred.id} cred={cred} clientId={id!} />
                 ))
               )}
             </CardContent>
           </Card>
         </Grid>
 
-        {/* Details */}
+        {/* Right column */}
         <Grid item xs={12} md={8}>
           <Card>
             <Box sx={{ borderBottom: '1px solid', borderColor: 'divider' }}>
               <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ px: 2 }}>
                 <Tab label="Profile" />
                 <Tab label="Portfolio" />
+                <Tab label="Sync Logs" />
                 <Tab label="Orders" />
-                <Tab label="Reports" />
               </Tabs>
             </Box>
             <CardContent sx={{ p: 3 }}>
@@ -163,25 +506,102 @@ export default function ClientDetailPage() {
                   )}
                 </Grid>
               )}
+
               {tab === 1 && (
                 <Box sx={{ textAlign: 'center', py: 6 }}>
-                  <Typography color="text.secondary">Portfolio data will be available in Phase 2</Typography>
+                  <Typography color="text.secondary" gutterBottom>
+                    Use the <strong>Sync</strong> button on a linked broker account to pull live holdings.
+                  </Typography>
+                  <Button variant="contained" startIcon={<PlayArrow />}
+                    onClick={() => navigate(`/portfolio?client=${id}`)} sx={{ borderRadius: 2, mt: 1 }}>
+                    View in Portfolio
+                  </Button>
                 </Box>
               )}
-              {tab === 2 && (
-                <Box sx={{ textAlign: 'center', py: 6 }}>
-                  <Typography color="text.secondary">Order history will be available in Phase 4</Typography>
-                </Box>
-              )}
+
+              {tab === 2 && <SyncLogsTab clientId={id!} />}
+
               {tab === 3 && (
                 <Box sx={{ textAlign: 'center', py: 6 }}>
-                  <Typography color="text.secondary">Reports will be available in Phase 5</Typography>
+                  <Typography color="text.secondary">Order history will be available in Phase 4</Typography>
                 </Box>
               )}
             </CardContent>
           </Card>
         </Grid>
       </Grid>
+
+      <AddCredentialDialog
+        clientId={id!}
+        open={addDialogOpen}
+        onClose={() => setAddDialogOpen(false)}
+      />
+
+      {client && (
+        <EditClientDetailDialog
+          open={editOpen}
+          onClose={() => setEditOpen(false)}
+          client={client}
+          onSaved={() => qc.invalidateQueries({ queryKey: ['client', id] })}
+        />
+      )}
     </Box>
+  );
+}
+
+function SyncLogsTab({ clientId }: { clientId: string }) {
+  const { data: logs = [], isLoading } = useQuery({
+    queryKey: ['sync-logs', clientId],
+    queryFn: async () => {
+      const res = await brokerService.getSyncLogs(clientId);
+      return (res as any).data;
+    },
+  });
+
+  if (isLoading) return <LinearProgress />;
+  if (logs.length === 0) return (
+    <Box sx={{ textAlign: 'center', py: 6 }}>
+      <History sx={{ fontSize: 48, color: 'text.disabled', mb: 1 }} />
+      <Typography color="text.secondary">No sync history yet. Trigger a sync from the broker accounts panel.</Typography>
+    </Box>
+  );
+
+  return (
+    <Table size="small">
+      <TableBody>
+        {logs.map((log: any) => (
+          <TableRow key={log.id} hover>
+            <TableCell sx={{ py: 1 }}>
+              <BrokerIcon broker={log.broker} size={28} />
+            </TableCell>
+            <TableCell sx={{ py: 1 }}>
+              <Typography variant="body2" fontWeight={600} sx={{ textTransform: 'capitalize' }}>{log.broker}</Typography>
+              <Typography variant="caption" color="text.secondary">{log.sync_type}</Typography>
+            </TableCell>
+            <TableCell sx={{ py: 1 }}>
+              <Chip label={log.status} size="small"
+                color={log.status === 'success' ? 'success' : log.status === 'running' ? 'info' : 'error'}
+                sx={{ height: 20, fontSize: 10 }} />
+            </TableCell>
+            <TableCell sx={{ py: 1 }}>
+              <Typography variant="body2">{log.records_synced} records</Typography>
+            </TableCell>
+            <TableCell sx={{ py: 1 }}>
+              <Typography variant="caption" color="text.secondary">
+                {new Date(log.started_at).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' })}
+              </Typography>
+            </TableCell>
+            <TableCell sx={{ py: 1 }}>
+              {log.duration_seconds != null && (
+                <Typography variant="caption" color="text.secondary">{log.duration_seconds != null ? `${Number(log.duration_seconds).toFixed(1)}s` : '—'}</Typography>
+              )}
+            </TableCell>
+            {log.error_message && (
+              <TableCell sx={{ py: 1, color: 'error.main', fontSize: 11 }}>{log.error_message}</TableCell>
+            )}
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
   );
 }

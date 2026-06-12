@@ -14,6 +14,7 @@ import {
   Settings as SettingsIcon,
   AdminPanelSettings as AdminIcon,
   TrendingUp as TrendingUpIcon,
+  MonitorHeart as ObservabilityIcon,
 } from '@mui/icons-material';
 import { useAppSelector } from '@/store';
 
@@ -36,6 +37,7 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 const ADMIN_ITEMS: NavItem[] = [
+  { label: 'Observability', path: '/observability', icon: <ObservabilityIcon />, roles: ['admin', 'portfolio_manager'] },
   { label: 'User Management', path: '/users', icon: <AdminIcon />, roles: ['admin'] },
   { label: 'Audit Logs', path: '/audit-logs', icon: <AuditIcon />, roles: ['admin', 'portfolio_manager'] },
   { label: 'Settings', path: '/settings', icon: <SettingsIcon /> },

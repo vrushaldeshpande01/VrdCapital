@@ -1,176 +1,363 @@
 import { useState } from 'react';
 import {
-  Box, Card, CardContent, Typography, Button, Chip, Grid,
-  Stepper, Step, StepLabel, TextField, MenuItem, IconButton,
-  Table, TableHead, TableBody, TableRow, TableCell, Alert, Divider,
+  Box, Card, CardContent, Typography, Button, Chip,
+  Stepper, Step, StepLabel, Grid, TextField, MenuItem,
+  Table, TableHead, TableRow, TableCell, TableBody,
+  Checkbox, FormControlLabel, Alert, CircularProgress,
+  Divider, IconButton, Tooltip,
 } from '@mui/material';
-import { Add, Delete, PlayArrow, Save } from '@mui/icons-material';
-
-const MOCK_BASKETS = [
-  { id: '1', name: 'Nifty50 Rebalance', orders: 8, clients: 12, status: 'COMPLETED', created: '2026-06-10', value: '₹48.2 L' },
-  { id: '2', name: 'IT Sector Buy', orders: 4, clients: 5, status: 'PENDING', created: '2026-06-11', value: '₹12.8 L' },
-  { id: '3', name: 'Banking Sector Trim', orders: 6, clients: 8, status: 'EXECUTING', created: '2026-06-11', value: '₹31.5 L' },
-];
-
-const STATUS_COLOR: Record<string, 'success' | 'warning' | 'default' | 'info'> = {
-  COMPLETED: 'success', PENDING: 'warning', EXECUTING: 'info', DRAFT: 'default',
-};
+import { Add, Delete, PlayArrow } from '@mui/icons-material';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useSnackbar } from 'notistack';
+import { ordersService, BasketItem, OrderSide, PriceType } from '@/api/orders';
+import { clientsService } from '@/api/clients';
 
 const STEPS = ['Define Basket', 'Select Clients', 'Review & Execute'];
 
-export default function BasketOrdersPage() {
-  const [activeStep, setActiveStep] = useState(0);
-  const [showCreate, setShowCreate] = useState(false);
-  const [orders, setOrders] = useState([
-    { symbol: 'RELIANCE', type: 'BUY', quantity: 10, price_type: 'MARKET' },
-    { symbol: 'TCS', type: 'BUY', quantity: 5, price_type: 'MARKET' },
-  ]);
+const EMPTY_ITEM = (): BasketItem & { id: number } => ({
+  id: Date.now(),
+  symbol: '', exchange: 'NSE',
+  side: 'BUY' as OrderSide,
+  price_type: 'MARKET' as PriceType,
+  quantity: 1, price: undefined,
+});
 
-  const addOrder = () => setOrders(o => [...o, { symbol: '', type: 'BUY', quantity: 1, price_type: 'MARKET' }]);
-  const removeOrder = (i: number) => setOrders(o => o.filter((_, idx) => idx !== i));
+export default function BasketOrdersPage() {
+  const { enqueueSnackbar } = useSnackbar();
+  const qc = useQueryClient();
+  const [step, setStep] = useState(0);
+  const [basketName, setBasketName] = useState('');
+  const [basketDesc, setBasketDesc] = useState('');
+  const [items, setItems] = useState([EMPTY_ITEM()]);
+  const [selectedClients, setSelectedClients] = useState<string[]>([]);
+  const [createdBasketId, setCreatedBasketId] = useState<string | null>(null);
+
+  const { data: clientList, isLoading: clientsLoading } = useQuery({
+    queryKey: ['clients', 1, ''],
+    queryFn: () => clientsService.list({ page: 1, size: 100 }),
+    enabled: step === 1,
+  });
+  const clients = clientList?.items || [];
+
+  const { data: pastBaskets, isLoading: basketsLoading } = useQuery({
+    queryKey: ['baskets'],
+    queryFn: () => ordersService.listBaskets().then(r => r.data),
+  });
+
+  const createMutation = useMutation({
+    mutationFn: () => ordersService.createBasket({
+      name: basketName,
+      description: basketDesc || undefined,
+      items: items.map(({ id, ...i }) => ({ ...i, price: i.price_type !== 'MARKET' && i.price ? String(i.price) : undefined })),
+    }),
+    onSuccess: (res) => {
+      setCreatedBasketId(res.data.id);
+      setStep(2);
+      enqueueSnackbar('Basket created. Review and execute below.', { variant: 'success' });
+    },
+    onError: (e: any) => enqueueSnackbar(e?.response?.data?.detail || 'Failed to create basket', { variant: 'error' }),
+  });
+
+  const executeMutation = useMutation({
+    mutationFn: () => ordersService.executeBasket(createdBasketId!, selectedClients),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['baskets'] });
+      qc.invalidateQueries({ queryKey: ['orders'] });
+      enqueueSnackbar(`Basket executing for ${selectedClients.length} client(s) — ${items.length * selectedClients.length} orders placed`, { variant: 'success' });
+      setStep(0);
+      setBasketName(''); setBasketDesc(''); setItems([EMPTY_ITEM()]);
+      setSelectedClients([]); setCreatedBasketId(null);
+    },
+    onError: (e: any) => enqueueSnackbar(e?.response?.data?.detail || 'Execution failed', { variant: 'error' }),
+  });
+
+  const updateItem = (id: number, key: string, value: string | number) =>
+    setItems(prev => prev.map(i => i.id === id ? { ...i, [key]: value } : i));
+
+  const removeItem = (id: number) => setItems(prev => prev.filter(i => i.id !== id));
+
+  const toggleClient = (id: string) =>
+    setSelectedClients(prev => prev.includes(id) ? prev.filter(c => c !== id) : [...prev, id]);
+
+  const step1Valid = basketName.trim() && items.every(i => i.symbol && i.quantity > 0);
+  const step2Valid = selectedClients.length > 0;
 
   return (
     <Box>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Box>
-          <Typography variant="h5" fontWeight={700}>Basket Orders</Typography>
-          <Typography variant="body2" color="text.secondary">
-            Execute the same set of orders across multiple clients simultaneously
-          </Typography>
-        </Box>
-        <Button variant="contained" startIcon={<Add />} onClick={() => setShowCreate(true)} sx={{ borderRadius: 2 }}>
-          New Basket
-        </Button>
+      <Box sx={{ mb: 3 }}>
+        <Typography variant="h5" fontWeight={700}>Basket Orders</Typography>
+        <Typography variant="body2" color="text.secondary">Execute a set of trades across multiple clients at once</Typography>
       </Box>
 
-      {showCreate && (
-        <Card sx={{ mb: 3, border: '2px solid', borderColor: 'primary.light' }}>
-          <CardContent sx={{ p: 3 }}>
-            <Typography variant="h6" fontWeight={700} gutterBottom>Create New Basket Order</Typography>
-            <Stepper activeStep={activeStep} sx={{ mb: 3 }}>
-              {STEPS.map((label) => <Step key={label}><StepLabel>{label}</StepLabel></Step>)}
-            </Stepper>
+      <Card sx={{ mb: 3 }}>
+        <CardContent>
+          <Stepper activeStep={step} sx={{ mb: 3 }}>
+            {STEPS.map(label => <Step key={label}><StepLabel>{label}</StepLabel></Step>)}
+          </Stepper>
 
-            {activeStep === 0 && (
-              <Box>
-                <TextField fullWidth label="Basket Name" size="small" defaultValue="New Basket" sx={{ mb: 2, '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
-                <Typography variant="subtitle2" fontWeight={700} gutterBottom>Orders</Typography>
-                <Table size="small">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>Symbol</TableCell>
-                      <TableCell>Type</TableCell>
-                      <TableCell>Quantity</TableCell>
-                      <TableCell>Price Type</TableCell>
-                      <TableCell width={40} />
+          {/* Step 0: Define Basket */}
+          {step === 0 && (
+            <Box>
+              <Grid container spacing={2} sx={{ mb: 2 }}>
+                <Grid item xs={12} md={6}>
+                  <TextField fullWidth size="small" label="Basket Name *" required value={basketName}
+                    onChange={e => setBasketName(e.target.value)}
+                    sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <TextField fullWidth size="small" label="Description (optional)" value={basketDesc}
+                    onChange={e => setBasketDesc(e.target.value)}
+                    sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
+                </Grid>
+              </Grid>
+
+              <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600 }}>Basket Items</Typography>
+              <Table size="small">
+                <TableHead>
+                  <TableRow sx={{ bgcolor: '#fafafa' }}>
+                    <TableCell>Symbol</TableCell>
+                    <TableCell>Exchange</TableCell>
+                    <TableCell>Side</TableCell>
+                    <TableCell>Type</TableCell>
+                    <TableCell>Qty</TableCell>
+                    <TableCell>Limit Price</TableCell>
+                    <TableCell></TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {items.map(item => (
+                    <TableRow key={item.id}>
+                      <TableCell>
+                        <TextField size="small" placeholder="RELIANCE" value={item.symbol}
+                          onChange={e => updateItem(item.id, 'symbol', e.target.value.toUpperCase())}
+                          sx={{ width: 110 }} />
+                      </TableCell>
+                      <TableCell>
+                        <TextField select size="small" value={item.exchange}
+                          onChange={e => updateItem(item.id, 'exchange', e.target.value)}
+                          sx={{ width: 80 }}>
+                          <MenuItem value="NSE">NSE</MenuItem>
+                          <MenuItem value="BSE">BSE</MenuItem>
+                        </TextField>
+                      </TableCell>
+                      <TableCell>
+                        <TextField select size="small" value={item.side}
+                          onChange={e => updateItem(item.id, 'side', e.target.value)}
+                          sx={{ width: 80 }}>
+                          <MenuItem value="BUY">BUY</MenuItem>
+                          <MenuItem value="SELL">SELL</MenuItem>
+                        </TextField>
+                      </TableCell>
+                      <TableCell>
+                        <TextField select size="small" value={item.price_type}
+                          onChange={e => updateItem(item.id, 'price_type', e.target.value)}
+                          sx={{ width: 100 }}>
+                          <MenuItem value="MARKET">MARKET</MenuItem>
+                          <MenuItem value="LIMIT">LIMIT</MenuItem>
+                          <MenuItem value="SL">SL</MenuItem>
+                        </TextField>
+                      </TableCell>
+                      <TableCell>
+                        <TextField size="small" type="number" value={item.quantity}
+                          onChange={e => updateItem(item.id, 'quantity', Number(e.target.value))}
+                          sx={{ width: 80 }} />
+                      </TableCell>
+                      <TableCell>
+                        {item.price_type !== 'MARKET' ? (
+                          <TextField size="small" type="number" placeholder="₹ price"
+                            value={item.price ?? ''}
+                            onChange={e => updateItem(item.id, 'price', e.target.value)}
+                            sx={{ width: 110 }} />
+                        ) : (
+                          <Typography color="text.disabled" fontSize={13}>—</Typography>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <Tooltip title="Remove">
+                          <span>
+                            <IconButton size="small" color="error" disabled={items.length === 1}
+                              onClick={() => removeItem(item.id)}>
+                              <Delete fontSize="small" />
+                            </IconButton>
+                          </span>
+                        </Tooltip>
+                      </TableCell>
                     </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {orders.map((order, i) => (
-                      <TableRow key={i}>
-                        <TableCell>
-                          <TextField size="small" value={order.symbol}
-                            onChange={(e) => setOrders(o => o.map((x, idx) => idx === i ? { ...x, symbol: e.target.value } : x))}
-                            sx={{ width: 120 }} />
-                        </TableCell>
-                        <TableCell>
-                          <TextField select size="small" value={order.type}
-                            onChange={(e) => setOrders(o => o.map((x, idx) => idx === i ? { ...x, type: e.target.value } : x))}
-                            sx={{ width: 90 }}>
-                            <MenuItem value="BUY">BUY</MenuItem>
-                            <MenuItem value="SELL">SELL</MenuItem>
-                          </TextField>
-                        </TableCell>
-                        <TableCell>
-                          <TextField size="small" type="number" value={order.quantity}
-                            onChange={(e) => setOrders(o => o.map((x, idx) => idx === i ? { ...x, quantity: Number(e.target.value) } : x))}
-                            sx={{ width: 90 }} />
-                        </TableCell>
-                        <TableCell>
-                          <TextField select size="small" value={order.price_type}
-                            onChange={(e) => setOrders(o => o.map((x, idx) => idx === i ? { ...x, price_type: e.target.value } : x))}
-                            sx={{ width: 110 }}>
-                            <MenuItem value="MARKET">MARKET</MenuItem>
-                            <MenuItem value="LIMIT">LIMIT</MenuItem>
-                          </TextField>
-                        </TableCell>
-                        <TableCell>
-                          <IconButton size="small" color="error" onClick={() => removeOrder(i)}><Delete fontSize="small" /></IconButton>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-                <Button size="small" startIcon={<Add />} onClick={addOrder} sx={{ mt: 1 }}>Add Order</Button>
+                  ))}
+                </TableBody>
+              </Table>
+
+              <Box sx={{ mt: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Button size="small" startIcon={<Add />} onClick={() => setItems(p => [...p, EMPTY_ITEM()])}>
+                  Add Symbol
+                </Button>
+                <Button variant="contained" disabled={!step1Valid} onClick={() => setStep(1)} sx={{ borderRadius: 2 }}>
+                  Next: Select Clients
+                </Button>
               </Box>
-            )}
-
-            {activeStep === 1 && (
-              <Alert severity="info">Client selection will connect to the Client Service in the full implementation. Select which clients to apply this basket to.</Alert>
-            )}
-
-            {activeStep === 2 && (
-              <Box>
-                <Alert severity="warning" sx={{ mb: 2 }}>
-                  You are about to execute {orders.length} orders across selected clients. This action cannot be undone.
-                </Alert>
-                <Typography variant="body2">Basket summary: {orders.length} symbols, {orders.filter(o => o.type === 'BUY').length} BUY / {orders.filter(o => o.type === 'SELL').length} SELL</Typography>
-              </Box>
-            )}
-
-            <Box sx={{ display: 'flex', gap: 2, mt: 3, justifyContent: 'flex-end' }}>
-              <Button onClick={() => setShowCreate(false)} sx={{ borderRadius: 2 }}>Cancel</Button>
-              {activeStep > 0 && <Button onClick={() => setActiveStep(s => s - 1)} sx={{ borderRadius: 2 }}>Back</Button>}
-              {activeStep < 2
-                ? <Button variant="contained" onClick={() => setActiveStep(s => s + 1)} sx={{ borderRadius: 2 }}>Next</Button>
-                : <Button variant="contained" color="success" startIcon={<PlayArrow />} sx={{ borderRadius: 2 }}>Execute Basket</Button>
-              }
             </Box>
-          </CardContent>
-        </Card>
-      )}
+          )}
 
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        {[{ label: 'Total Baskets', val: 3 }, { label: 'Executing', val: 1 }, { label: 'Completed Today', val: 1 }].map(s => (
-          <Grid item xs={4} key={s.label}>
-            <Card>
-              <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
-                <Typography variant="caption" color="text.secondary">{s.label}</Typography>
-                <Typography variant="h4" fontWeight={700}>{s.val}</Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-        ))}
-      </Grid>
+          {/* Step 1: Select Clients */}
+          {step === 1 && (
+            <Box>
+              <Typography variant="subtitle2" sx={{ mb: 2, fontWeight: 600 }}>
+                Select clients to execute this basket for
+              </Typography>
+              {clientsLoading ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
+                  <CircularProgress />
+                </Box>
+              ) : clients.length === 0 ? (
+                <Alert severity="warning">No clients found. Add clients first.</Alert>
+              ) : (
+                <>
+                  <FormControlLabel
+                    label={<Typography fontWeight={600}>Select All ({clients.length})</Typography>}
+                    control={
+                      <Checkbox
+                        checked={selectedClients.length === clients.length}
+                        indeterminate={selectedClients.length > 0 && selectedClients.length < clients.length}
+                        onChange={() => setSelectedClients(
+                          selectedClients.length === clients.length ? [] : clients.map(c => c.id)
+                        )}
+                      />
+                    }
+                    sx={{ mb: 1, display: 'flex' }}
+                  />
+                  <Divider sx={{ mb: 1 }} />
+                  <Box sx={{ maxHeight: 300, overflowY: 'auto' }}>
+                    {clients.map(c => (
+                      <FormControlLabel
+                        key={c.id}
+                        label={
+                          <Box>
+                            <Typography fontSize={14} fontWeight={600}>{c.full_name}</Typography>
+                            <Typography fontSize={12} color="text.secondary">{c.email}</Typography>
+                          </Box>
+                        }
+                        control={<Checkbox checked={selectedClients.includes(c.id)} onChange={() => toggleClient(c.id)} />}
+                        sx={{ display: 'flex', mb: 0.5, '& .MuiFormControlLabel-label': { flexGrow: 1 } }}
+                      />
+                    ))}
+                  </Box>
+                </>
+              )}
+              <Box sx={{ mt: 2, display: 'flex', justifyContent: 'space-between' }}>
+                <Button onClick={() => setStep(0)} sx={{ borderRadius: 2 }}>Back</Button>
+                <Button variant="contained" disabled={!step2Valid || createMutation.isPending} onClick={() => createMutation.mutate()}
+                  sx={{ borderRadius: 2 }}>
+                  {createMutation.isPending ? <CircularProgress size={18} color="inherit" /> : 'Create Basket'}
+                </Button>
+              </Box>
+            </Box>
+          )}
 
-      <Card>
-        <CardContent sx={{ p: 2.5 }}>
-          <Typography variant="h6" fontWeight={600} gutterBottom>Basket History</Typography>
-          <Table>
-            <TableHead>
-              <TableRow>
-                {['Name', 'Orders', 'Clients', 'Est. Value', 'Status', 'Created'].map(h => (
-                  <TableCell key={h} sx={{ fontWeight: 700, fontSize: 12 }}>{h}</TableCell>
-                ))}
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {MOCK_BASKETS.map(b => (
-                <TableRow key={b.id} hover>
-                  <TableCell sx={{ fontWeight: 600 }}>{b.name}</TableCell>
-                  <TableCell>{b.orders}</TableCell>
-                  <TableCell>{b.clients}</TableCell>
-                  <TableCell>{b.value}</TableCell>
-                  <TableCell>
-                    <Chip label={b.status} size="small" color={STATUS_COLOR[b.status] || 'default'} sx={{ height: 20, fontSize: 11 }} />
-                  </TableCell>
-                  <TableCell sx={{ fontSize: 12, color: 'text.secondary' }}>{b.created}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          {/* Step 2: Review & Execute */}
+          {step === 2 && (
+            <Box>
+              <Alert severity="success" sx={{ mb: 2 }}>
+                Basket "<strong>{basketName}</strong>" created with {items.length} symbol(s).
+              </Alert>
+              <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1 }}>Summary</Typography>
+              <Grid container spacing={1} sx={{ mb: 2 }}>
+                <Grid item xs={4}>
+                  <Card variant="outlined" sx={{ p: 1.5, textAlign: 'center', borderRadius: 2 }}>
+                    <Typography variant="caption" color="text.secondary">Symbols</Typography>
+                    <Typography variant="h5" fontWeight={700}>{items.length}</Typography>
+                  </Card>
+                </Grid>
+                <Grid item xs={4}>
+                  <Card variant="outlined" sx={{ p: 1.5, textAlign: 'center', borderRadius: 2 }}>
+                    <Typography variant="caption" color="text.secondary">Clients</Typography>
+                    <Typography variant="h5" fontWeight={700}>{selectedClients.length}</Typography>
+                  </Card>
+                </Grid>
+                <Grid item xs={4}>
+                  <Card variant="outlined" sx={{ p: 1.5, textAlign: 'center', borderRadius: 2 }}>
+                    <Typography variant="caption" color="text.secondary">Total Orders</Typography>
+                    <Typography variant="h5" fontWeight={700}>{items.length * selectedClients.length}</Typography>
+                  </Card>
+                </Grid>
+              </Grid>
+
+              <Table size="small" sx={{ mb: 2 }}>
+                <TableHead>
+                  <TableRow sx={{ bgcolor: '#fafafa' }}>
+                    <TableCell>Symbol</TableCell>
+                    <TableCell>Side</TableCell>
+                    <TableCell>Type</TableCell>
+                    <TableCell>Qty</TableCell>
+                    <TableCell>Price</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {items.map((i, idx) => (
+                    <TableRow key={idx}>
+                      <TableCell>
+                        <Typography fontWeight={700} component="span">{i.symbol}</Typography>
+                        <Typography component="span" fontSize={11} color="text.secondary" sx={{ ml: 0.5 }}>{i.exchange}</Typography>
+                      </TableCell>
+                      <TableCell><Chip label={i.side} size="small" color={i.side === 'BUY' ? 'success' : 'error'} sx={{ height: 20, fontSize: 11 }} /></TableCell>
+                      <TableCell>{i.price_type}</TableCell>
+                      <TableCell>{i.quantity}</TableCell>
+                      <TableCell>{i.price_type !== 'MARKET' && i.price ? `₹${i.price}` : 'MARKET'}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+
+              <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                <Button onClick={() => setStep(1)} sx={{ borderRadius: 2 }}>Back</Button>
+                <Button variant="contained" color="success" startIcon={executeMutation.isPending ? undefined : <PlayArrow />}
+                  onClick={() => executeMutation.mutate()}
+                  disabled={executeMutation.isPending}
+                  sx={{ borderRadius: 2 }}>
+                  {executeMutation.isPending ? <CircularProgress size={18} color="inherit" /> : `Execute for ${selectedClients.length} Client(s)`}
+                </Button>
+              </Box>
+            </Box>
+          )}
         </CardContent>
       </Card>
+
+      {/* Past Baskets */}
+      <Typography variant="h6" fontWeight={700} sx={{ mb: 1.5 }}>Basket History</Typography>
+      {basketsLoading ? <CircularProgress size={24} /> : (
+        <Grid container spacing={2}>
+          {(pastBaskets || []).length === 0 && (
+            <Grid item xs={12}>
+              <Alert severity="info">No baskets yet. Create your first basket above.</Alert>
+            </Grid>
+          )}
+          {(pastBaskets || []).map(b => (
+            <Grid item xs={12} md={6} key={b.id}>
+              <Card variant="outlined" sx={{ borderRadius: 2 }}>
+                <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <Box>
+                      <Typography fontWeight={700}>{b.name}</Typography>
+                      {b.description && <Typography fontSize={12} color="text.secondary">{b.description}</Typography>}
+                    </Box>
+                    <Chip label={b.status} size="small"
+                      color={b.status === 'COMPLETED' ? 'success' : b.status === 'FAILED' ? 'error' : b.status === 'EXECUTING' ? 'warning' : 'default'}
+                      variant="outlined" sx={{ height: 20, fontSize: 11 }} />
+                  </Box>
+                  <Box sx={{ mt: 1, display: 'flex', gap: 2 }}>
+                    <Typography fontSize={12} color="text.secondary">
+                      {b.executed_orders}/{b.total_orders} executed
+                    </Typography>
+                    {b.failed_orders > 0 && <Typography fontSize={12} color="error">{b.failed_orders} failed</Typography>}
+                  </Box>
+                  <Typography fontSize={11} color="text.disabled" sx={{ mt: 0.5 }}>
+                    {new Date(b.created_at).toLocaleString('en-IN')}
+                  </Typography>
+                </CardContent>
+              </Card>
+            </Grid>
+          ))}
+        </Grid>
+      )}
     </Box>
   );
 }

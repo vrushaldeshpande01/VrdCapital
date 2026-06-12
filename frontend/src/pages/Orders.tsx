@@ -2,61 +2,268 @@ import { useState } from 'react';
 import {
   Box, Card, CardContent, Typography, Button, Chip, TextField,
   InputAdornment, Grid, MenuItem, Tabs, Tab,
+  Dialog, DialogTitle, DialogContent, DialogActions, Alert,
+  IconButton, Tooltip, CircularProgress,
 } from '@mui/material';
-import { Add, Search } from '@mui/icons-material';
-import {
-  DataGrid, GridColDef,
-} from '@mui/x-data-grid';
+import { Add, Search, Cancel, Refresh, CallMade } from '@mui/icons-material';
+import { DataGrid, GridColDef } from '@mui/x-data-grid';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useSnackbar } from 'notistack';
+import { ordersService, PlaceOrderPayload, Order, OrderSide, PriceType } from '@/api/orders';
+import { clientsService } from '@/api/clients';
 
-const MOCK_ORDERS = [
-  { id: '1', client: 'Rajesh Kumar', symbol: 'RELIANCE', exchange: 'NSE', type: 'BUY', quantity: 50, price: 2485.60, status: 'EXECUTED', broker: 'Zerodha', time: '2026-06-11 10:32:00' },
-  { id: '2', client: 'Priya Sharma', symbol: 'TCS', exchange: 'NSE', type: 'SELL', quantity: 25, price: 3892.40, status: 'EXECUTED', broker: 'Upstox', time: '2026-06-11 11:05:00' },
-  { id: '3', client: 'Amit Patel', symbol: 'HDFCBANK', exchange: 'NSE', type: 'BUY', quantity: 30, price: 1672.80, status: 'PENDING', broker: 'AngelOne', time: '2026-06-11 11:48:00' },
-  { id: '4', client: 'Sneha Joshi', symbol: 'INFY', exchange: 'NSE', type: 'BUY', quantity: 100, price: 1458.20, status: 'EXECUTED', broker: 'Zerodha', time: '2026-06-11 12:15:00' },
-  { id: '5', client: 'Vikram Singh', symbol: 'WIPRO', exchange: 'NSE', type: 'SELL', quantity: 75, price: 485.60, status: 'CANCELLED', broker: 'Upstox', time: '2026-06-11 14:22:00' },
-  { id: '6', client: 'Meera Nair', symbol: 'BAJFINANCE', exchange: 'NSE', type: 'BUY', quantity: 10, price: 6890.40, status: 'REJECTED', broker: 'Zerodha', time: '2026-06-11 14:45:00' },
-];
-
-const STATUS_COLOR: Record<string, 'success' | 'warning' | 'error' | 'default'> = {
-  EXECUTED: 'success', PENDING: 'warning', CANCELLED: 'error', REJECTED: 'error',
+const STATUS_COLOR: Record<string, 'success' | 'warning' | 'error' | 'default' | 'info'> = {
+  EXECUTED: 'success', PENDING: 'warning', OPEN: 'info',
+  SUBMITTED: 'info', PARTIALLY_EXECUTED: 'warning',
+  CANCELLED: 'error', REJECTED: 'error', FAILED: 'error',
 };
 
-const columns: GridColDef[] = [
-  { field: 'client', headerName: 'Client', flex: 1, minWidth: 140 },
-  { field: 'symbol', headerName: 'Symbol', width: 110, renderCell: ({ value }) => <Typography fontWeight={700} fontSize={13}>{value}</Typography> },
-  { field: 'exchange', headerName: 'Exch', width: 70 },
+const today = new Date().toISOString().slice(0, 10);
+
+function PlaceOrderDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { enqueueSnackbar } = useSnackbar();
+  const qc = useQueryClient();
+  const [form, setForm] = useState({
+    client_id: '', broker: 'zerodha', symbol: '', exchange: 'NSE',
+    side: 'BUY' as OrderSide, price_type: 'MARKET' as PriceType,
+    quantity: '1', price: '',
+  });
+
+  const { data: clientList } = useQuery({
+    queryKey: ['clients', 1, ''],
+    queryFn: () => clientsService.list({ page: 1, size: 100 }),
+  });
+  const clients = clientList?.items || [];
+
+  const { mutate, isPending } = useMutation({
+    mutationFn: () => {
+      const payload: PlaceOrderPayload = {
+        client_id: form.client_id,
+        broker: form.broker,
+        symbol: form.symbol.toUpperCase(),
+        exchange: form.exchange,
+        side: form.side,
+        price_type: form.price_type,
+        quantity: Number(form.quantity),
+        price: form.price_type === 'LIMIT' && form.price ? form.price : undefined,
+      };
+      return ordersService.place(payload);
+    },
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ['orders'] });
+      qc.invalidateQueries({ queryKey: ['order-stats'] });
+      enqueueSnackbar(`Order placed — ${res.data.status}`, { variant: 'success' });
+      onClose();
+    },
+    onError: (e: any) => enqueueSnackbar(e?.response?.data?.detail || 'Failed to place order', { variant: 'error' }),
+  });
+
+  const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setForm(p => ({ ...p, [k]: e.target.value }));
+
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
+      <form onSubmit={(e) => { e.preventDefault(); mutate(); }}>
+        <DialogTitle sx={{ fontWeight: 700 }}>Place Order</DialogTitle>
+        <DialogContent sx={{ pt: 2 }}>
+          <Grid container spacing={2}>
+            <Grid item xs={12}>
+              <TextField select fullWidth size="small" label="Client *" required value={form.client_id} onChange={set('client_id')} sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}>
+                {clients.map(c => <MenuItem key={c.id} value={c.id}>{c.full_name} — {c.email}</MenuItem>)}
+              </TextField>
+            </Grid>
+            <Grid item xs={8}>
+              <TextField fullWidth size="small" label="Symbol *" required placeholder="e.g. RELIANCE"
+                value={form.symbol} onChange={set('symbol')}
+                sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
+            </Grid>
+            <Grid item xs={4}>
+              <TextField select fullWidth size="small" label="Exchange" value={form.exchange} onChange={set('exchange')} sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}>
+                <MenuItem value="NSE">NSE</MenuItem>
+                <MenuItem value="BSE">BSE</MenuItem>
+              </TextField>
+            </Grid>
+            <Grid item xs={4}>
+              <TextField select fullWidth size="small" label="Side" value={form.side}
+                onChange={e => setForm(p => ({ ...p, side: e.target.value as OrderSide }))}
+                sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}>
+                <MenuItem value="BUY">BUY</MenuItem>
+                <MenuItem value="SELL">SELL</MenuItem>
+              </TextField>
+            </Grid>
+            <Grid item xs={4}>
+              <TextField select fullWidth size="small" label="Broker" value={form.broker} onChange={set('broker')} sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}>
+                <MenuItem value="zerodha">Zerodha</MenuItem>
+                <MenuItem value="upstox">Upstox</MenuItem>
+                <MenuItem value="angelone">AngelOne</MenuItem>
+              </TextField>
+            </Grid>
+            <Grid item xs={4}>
+              <TextField select fullWidth size="small" label="Price Type" value={form.price_type}
+                onChange={e => setForm(p => ({ ...p, price_type: e.target.value as PriceType, price: '' }))}
+                sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}>
+                <MenuItem value="MARKET">MARKET</MenuItem>
+                <MenuItem value="LIMIT">LIMIT</MenuItem>
+                <MenuItem value="SL">Stop Loss</MenuItem>
+              </TextField>
+            </Grid>
+            <Grid item xs={form.price_type !== 'MARKET' ? 6 : 12}>
+              <TextField fullWidth size="small" type="number" label="Quantity *" required
+                value={form.quantity} onChange={set('quantity')}
+                sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
+            </Grid>
+            {form.price_type !== 'MARKET' && (
+              <Grid item xs={6}>
+                <TextField fullWidth size="small" type="number" label="Limit Price (₹) *" required
+                  value={form.price} onChange={set('price')}
+                  sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
+              </Grid>
+            )}
+          </Grid>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.5 }}>
+          <Button onClick={onClose} sx={{ borderRadius: 2 }}>Cancel</Button>
+          <Button type="submit" variant="contained" disabled={isPending} sx={{ borderRadius: 2, px: 3 }}>
+            {isPending ? <CircularProgress size={18} color="inherit" /> : 'Place Order'}
+          </Button>
+        </DialogActions>
+      </form>
+    </Dialog>
+  );
+}
+
+const columns = (
+  onCancel: (id: string) => void,
+  onExit: (order: Order) => void,
+  clientMap: Record<string, string>,
+): GridColDef<Order>[] => [
   {
-    field: 'type', headerName: 'Type', width: 80,
-    renderCell: ({ value }) => <Chip label={value} size="small" color={value === 'BUY' ? 'success' : 'error'} sx={{ height: 20, fontSize: 11, fontWeight: 700 }} />,
+    field: 'client_id', headerName: 'Client', width: 130, headerAlign: 'center',
+    renderCell: ({ value }) => (
+      <Box sx={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
+        <Typography fontSize={12} noWrap>{clientMap[value] || '—'}</Typography>
+      </Box>
+    ),
   },
-  { field: 'quantity', headerName: 'Qty', width: 80, type: 'number' },
-  { field: 'price', headerName: 'Price', width: 110, renderCell: ({ value }) => `₹${Number(value).toLocaleString('en-IN')}` },
   {
-    field: 'value', headerName: 'Value', width: 120,
-    renderCell: ({ row }) => `₹${(row.quantity * row.price).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`,
+    field: 'symbol', headerName: 'Symbol', width: 100, headerAlign: 'center',
+    renderCell: ({ value }) => (
+      <Box sx={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
+        <Typography fontWeight={700} fontSize={13}>{value}</Typography>
+      </Box>
+    ),
   },
-  { field: 'broker', headerName: 'Broker', width: 100 },
+  { field: 'exchange', headerName: 'Exch', width: 60, align: 'center', headerAlign: 'center' },
   {
-    field: 'status', headerName: 'Status', width: 110,
-    renderCell: ({ value }) => <Chip label={value} size="small" color={STATUS_COLOR[value] || 'default'} variant="outlined" sx={{ height: 20, fontSize: 11 }} />,
+    field: 'side', headerName: 'Side', width: 70, headerAlign: 'center',
+    renderCell: ({ value }) => (
+      <Box sx={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
+        <Chip label={value} size="small" color={value === 'BUY' ? 'success' : 'error'} sx={{ height: 20, fontSize: 11, fontWeight: 700 }} />
+      </Box>
+    ),
   },
-  { field: 'time', headerName: 'Time', width: 160, renderCell: ({ value }) => <Typography fontSize={12} color="text.secondary">{value}</Typography> },
+  { field: 'price_type', headerName: 'Type', width: 80, align: 'center', headerAlign: 'center' },
+  { field: 'quantity', headerName: 'Qty', width: 65, type: 'number', align: 'center', headerAlign: 'center' },
+  {
+    field: 'price', headerName: 'Price', width: 110, align: 'center', headerAlign: 'center',
+    renderCell: ({ row }) => row.average_price
+      ? `₹${Number(row.average_price).toLocaleString('en-IN')}`
+      : row.price ? `₹${Number(row.price).toLocaleString('en-IN')}` : 'MARKET',
+  },
+  { field: 'broker', headerName: 'Broker', width: 85, align: 'center', headerAlign: 'center' },
+  {
+    field: 'status', headerName: 'Status', width: 130, headerAlign: 'center',
+    renderCell: ({ value }) => (
+      <Box sx={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
+        <Chip label={value} size="small" color={STATUS_COLOR[value] || 'default'} variant="outlined" sx={{ height: 20, fontSize: 11 }} />
+      </Box>
+    ),
+  },
+  {
+    field: 'placed_at', headerName: 'Time', width: 145, align: 'center', headerAlign: 'center',
+    renderCell: ({ value }) => <Typography fontSize={12} color="text.secondary">{new Date(value).toLocaleString('en-IN')}</Typography>,
+  },
+  {
+    field: 'actions', headerName: 'Action', width: 80, sortable: false, headerAlign: 'center',
+    renderCell: ({ row }) => (
+      <Box sx={{ display: 'flex', justifyContent: 'center', width: '100%', gap: 0.5 }}>
+        {['PENDING', 'OPEN', 'SUBMITTED'].includes(row.status) && (
+          <Tooltip title="Cancel Order">
+            <IconButton size="small" color="error" onClick={() => onCancel(row.id)}>
+              <Cancel fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        )}
+        {row.status === 'EXECUTED' && row.side === 'BUY' && (
+          <Tooltip title="Exit / Sell">
+            <IconButton size="small" color="warning" onClick={() => onExit(row)}>
+              <CallMade fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        )}
+      </Box>
+    ),
+  },
 ];
 
 export default function OrdersPage() {
+  const { enqueueSnackbar } = useSnackbar();
+  const qc = useQueryClient();
   const [tab, setTab] = useState(0);
   const [search, setSearch] = useState('');
+  const [sideFilter, setSideFilter] = useState('all');
+  const [brokerFilter, setBrokerFilter] = useState('all');
+  const [placeOpen, setPlaceOpen] = useState(false);
+  const [exitOrder, setExitOrder] = useState<Order | null>(null);
+  const [page, setPage] = useState(0);
 
-  const filtered = MOCK_ORDERS.filter(o =>
-    o.client.toLowerCase().includes(search.toLowerCase()) ||
-    o.symbol.toLowerCase().includes(search.toLowerCase())
+  const statusParam = tab === 2 ? 'PENDING,OPEN,SUBMITTED' : undefined;
+
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ['orders', page, tab, sideFilter, brokerFilter],
+    queryFn: () => ordersService.list({
+      page: page + 1, size: 50,
+      side: sideFilter !== 'all' ? sideFilter : undefined,
+      broker: brokerFilter !== 'all' ? brokerFilter : undefined,
+      status: statusParam,
+      date_from: tab === 1 ? `${today}T00:00:00` : undefined,
+    }).then(r => r.data),
+    refetchInterval: 30_000,
+  });
+
+  const { data: stats } = useQuery({
+    queryKey: ['order-stats'],
+    queryFn: () => ordersService.stats().then(r => r.data),
+    refetchInterval: 30_000,
+  });
+
+  const { mutate: cancelOrder } = useMutation({
+    mutationFn: (id: string) => ordersService.cancel(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['orders'] });
+      qc.invalidateQueries({ queryKey: ['order-stats'] });
+      enqueueSnackbar('Order cancelled', { variant: 'success' });
+    },
+    onError: (e: any) => enqueueSnackbar(e?.response?.data?.detail || 'Failed to cancel order', { variant: 'error' }),
+  });
+
+  const { data: clientList } = useQuery({
+    queryKey: ['clients', 1, ''],
+    queryFn: () => clientsService.list({ page: 1, size: 200 }),
+  });
+  const clientMap: Record<string, string> = Object.fromEntries(
+    (clientList?.items || []).map(c => [c.id, c.full_name])
   );
 
-  const stats = [
-    { label: 'Total Orders', value: MOCK_ORDERS.length, color: '#1a237e' },
-    { label: 'Executed', value: MOCK_ORDERS.filter(o => o.status === 'EXECUTED').length, color: '#2e7d32' },
-    { label: 'Pending', value: MOCK_ORDERS.filter(o => o.status === 'PENDING').length, color: '#e65100' },
-    { label: 'Cancelled', value: MOCK_ORDERS.filter(o => o.status === 'CANCELLED').length, color: '#c62828' },
+  const orders = (data?.items || []).filter(o =>
+    !search || o.symbol.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const statCards = [
+    { label: 'Total Orders', value: stats?.total ?? '—', color: '#1a237e' },
+    { label: 'Executed', value: stats?.executed ?? '—', color: '#2e7d32' },
+    { label: 'Pending / Open', value: stats?.pending ?? '—', color: '#e65100' },
+    { label: 'Cancelled', value: stats?.cancelled ?? '—', color: '#c62828' },
   ];
 
   return (
@@ -64,15 +271,20 @@ export default function OrdersPage() {
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Box>
           <Typography variant="h5" fontWeight={700}>Orders</Typography>
-          <Typography variant="body2" color="text.secondary">Manage and track all trade orders</Typography>
+          <Typography variant="body2" color="text.secondary">Live order management across all brokers</Typography>
         </Box>
-        <Button variant="contained" startIcon={<Add />} sx={{ borderRadius: 2 }}>
-          Place Order
-        </Button>
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <Tooltip title="Refresh">
+            <IconButton onClick={() => refetch()}><Refresh /></IconButton>
+          </Tooltip>
+          <Button variant="contained" startIcon={<Add />} onClick={() => setPlaceOpen(true)} sx={{ borderRadius: 2 }}>
+            Place Order
+          </Button>
+        </Box>
       </Box>
 
       <Grid container spacing={2} sx={{ mb: 3 }}>
-        {stats.map((s) => (
+        {statCards.map((s) => (
           <Grid item xs={6} md={3} key={s.label}>
             <Card>
               <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
@@ -86,45 +298,121 @@ export default function OrdersPage() {
 
       <Card>
         <Box sx={{ borderBottom: '1px solid', borderColor: 'divider' }}>
-          <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ px: 2 }}>
+          <Tabs value={tab} onChange={(_, v) => { setTab(v); setPage(0); }} sx={{ px: 2 }}>
             <Tab label="All Orders" />
-            <Tab label="Today" />
-            <Tab label="Pending" />
+            <Tab label={`Today (${stats?.today ?? 0})`} />
+            <Tab label={`Pending (${stats?.pending ?? 0})`} />
           </Tabs>
         </Box>
         <CardContent sx={{ p: 2 }}>
           <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap' }}>
             <TextField
-              placeholder="Search client or symbol..."
-              size="small"
-              value={search}
+              placeholder="Search symbol..."
+              size="small" value={search}
               onChange={(e) => setSearch(e.target.value)}
               InputProps={{ startAdornment: <InputAdornment position="start"><Search fontSize="small" /></InputAdornment> }}
-              sx={{ width: 280, '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
+              sx={{ width: 220, '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
             />
-            <TextField select size="small" defaultValue="all" sx={{ width: 130, '& .MuiOutlinedInput-root': { borderRadius: 2 } }}>
-              <MenuItem value="all">All Types</MenuItem>
-              <MenuItem value="buy">BUY</MenuItem>
-              <MenuItem value="sell">SELL</MenuItem>
+            <TextField select size="small" value={sideFilter} onChange={(e) => setSideFilter(e.target.value)}
+              sx={{ width: 120, '& .MuiOutlinedInput-root': { borderRadius: 2 } }}>
+              <MenuItem value="all">All Sides</MenuItem>
+              <MenuItem value="BUY">BUY</MenuItem>
+              <MenuItem value="SELL">SELL</MenuItem>
             </TextField>
-            <TextField select size="small" defaultValue="all" sx={{ width: 140, '& .MuiOutlinedInput-root': { borderRadius: 2 } }}>
+            <TextField select size="small" value={brokerFilter} onChange={(e) => setBrokerFilter(e.target.value)}
+              sx={{ width: 140, '& .MuiOutlinedInput-root': { borderRadius: 2 } }}>
               <MenuItem value="all">All Brokers</MenuItem>
               <MenuItem value="zerodha">Zerodha</MenuItem>
               <MenuItem value="upstox">Upstox</MenuItem>
               <MenuItem value="angelone">AngelOne</MenuItem>
             </TextField>
           </Box>
+
+          {orders.length === 0 && !isLoading && (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              No orders yet. Click <strong>Place Order</strong> to place your first order.
+            </Alert>
+          )}
+
           <DataGrid
-            rows={filtered}
-            columns={columns}
+            rows={orders}
+            columns={columns((id) => cancelOrder(id), (order) => setExitOrder(order), clientMap)}
+            loading={isLoading}
+            rowCount={data?.total || 0}
+            paginationMode="server"
+            paginationModel={{ page, pageSize: 50 }}
+            onPaginationModelChange={({ page: p }) => setPage(p)}
+            pageSizeOptions={[50]}
             autoHeight
             disableRowSelectionOnClick
-            pageSizeOptions={[10, 25]}
-            initialState={{ pagination: { paginationModel: { pageSize: 10 } } }}
             sx={{ border: 'none', '& .MuiDataGrid-cell': { borderBottom: '1px solid #f5f5f5' }, '& .MuiDataGrid-columnHeaders': { bgcolor: '#fafafa' } }}
           />
         </CardContent>
       </Card>
+
+      <PlaceOrderDialog open={placeOpen} onClose={() => setPlaceOpen(false)} />
+      {exitOrder && (
+        <ExitOrderDialog
+          order={exitOrder}
+          onClose={() => setExitOrder(null)}
+        />
+      )}
     </Box>
+  );
+}
+
+function ExitOrderDialog({ order, onClose }: { order: Order; onClose: () => void }) {
+  const { enqueueSnackbar } = useSnackbar();
+  const qc = useQueryClient();
+  const [qty, setQty] = useState(String(order.quantity));
+
+  const { mutate, isPending } = useMutation({
+    mutationFn: () => {
+      const payload: PlaceOrderPayload = {
+        client_id: order.client_id,
+        broker: order.broker,
+        symbol: order.symbol,
+        exchange: order.exchange,
+        side: 'SELL' as OrderSide,
+        price_type: 'MARKET' as PriceType,
+        quantity: Number(qty),
+      };
+      return ordersService.place(payload);
+    },
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ['orders'] });
+      qc.invalidateQueries({ queryKey: ['order-stats'] });
+      enqueueSnackbar(`Exit order placed — ${res.data.status}`, { variant: 'success' });
+      onClose();
+    },
+    onError: (e: any) => enqueueSnackbar(e?.response?.data?.detail || 'Failed to place exit order', { variant: 'error' }),
+  });
+
+  return (
+    <Dialog open onClose={onClose} maxWidth="xs" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
+      <form onSubmit={(e) => { e.preventDefault(); mutate(); }}>
+        <DialogTitle sx={{ fontWeight: 700 }}>Exit Position — {order.symbol}</DialogTitle>
+        <DialogContent sx={{ pt: 2 }}>
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            Places a <strong>MARKET SELL</strong> order for {order.symbol} on {order.broker}.
+          </Alert>
+          <Grid container spacing={2}>
+            <Grid item xs={12}>
+              <TextField fullWidth size="small" type="number" label="Sell Quantity"
+                value={qty} onChange={(e) => setQty(e.target.value)}
+                inputProps={{ min: 1, max: order.quantity }}
+                helperText={`Max: ${order.quantity} (original buy qty)`}
+                sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
+            </Grid>
+          </Grid>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.5 }}>
+          <Button onClick={onClose} sx={{ borderRadius: 2 }}>Cancel</Button>
+          <Button type="submit" variant="contained" color="error" disabled={isPending} sx={{ borderRadius: 2, px: 3 }}>
+            {isPending ? <CircularProgress size={18} color="inherit" /> : 'Sell / Exit'}
+          </Button>
+        </DialogActions>
+      </form>
+    </Dialog>
   );
 }
