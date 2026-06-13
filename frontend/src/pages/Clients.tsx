@@ -9,6 +9,7 @@ import {
 import {
   Search, Add, Visibility,
   CheckCircle, Cancel, FilterList,
+  DeleteOutline,
 } from '@mui/icons-material';
 import { DataGrid, GridColDef } from '@mui/x-data-grid';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -182,6 +183,55 @@ function CreateClientDialog({ open, onClose }: { open: boolean; onClose: () => v
   );
 }
 
+function DeleteClientDialog({
+  client,
+  onClose,
+}: {
+  client: Client | null;
+  onClose: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const { enqueueSnackbar } = useSnackbar();
+
+  const { mutate, isPending } = useMutation({
+    mutationFn: () => clientsService.delete(client!.id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['clients'] });
+      queryClient.invalidateQueries({ queryKey: ['client-stats'] });
+      enqueueSnackbar('Client deleted successfully', { variant: 'success' });
+      onClose();
+    },
+    onError: (err: any) => {
+      enqueueSnackbar(err?.response?.data?.detail ?? 'Delete failed', { variant: 'error' });
+    },
+  });
+
+  if (!client) return null;
+
+  return (
+    <Dialog open onClose={onClose} maxWidth="xs" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
+      <DialogTitle sx={{ fontWeight: 700 }}>Delete Client</DialogTitle>
+      <DialogContent>
+        <Typography variant="body2">
+          Are you sure you want to delete <strong>{client.full_name}</strong>? This action cannot be undone.
+        </Typography>
+      </DialogContent>
+      <DialogActions sx={{ px: 3, pb: 2.5 }}>
+        <Button onClick={onClose} sx={{ borderRadius: 2 }}>Cancel</Button>
+        <Button
+          variant="contained"
+          color="error"
+          disabled={isPending}
+          onClick={() => mutate()}
+          sx={{ borderRadius: 2, px: 3 }}
+        >
+          {isPending ? <CircularProgress size={18} color="inherit" /> : 'Delete'}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
 export default function ClientsPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -190,6 +240,7 @@ export default function ClientsPage() {
   const [page, setPage] = useState(0);
   const [pageSize] = useState(20);
   const [createOpen, setCreateOpen] = useState(false);
+  const [deleteClient, setDeleteClient] = useState<Client | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['clients', page, search],
@@ -274,14 +325,19 @@ export default function ClientsPage() {
     {
       field: 'actions',
       headerName: 'Actions',
-      width: 80,
+      width: 110,
       sortable: false,
       headerAlign: 'center',
       renderCell: ({ row }) => (
-        <Box sx={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
+        <Box sx={{ display: 'flex', justifyContent: 'center', gap: 0.5, width: '100%' }}>
           <Tooltip title="View">
             <IconButton size="small" onClick={() => navigate(`/clients/${row.id}`)}>
               <Visibility fontSize="small" />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Delete client">
+            <IconButton size="small" color="error" onClick={() => setDeleteClient(row)}>
+              <DeleteOutline fontSize="small" />
             </IconButton>
           </Tooltip>
         </Box>
@@ -349,6 +405,7 @@ export default function ClientsPage() {
       </Card>
 
       <CreateClientDialog open={createOpen} onClose={() => setCreateOpen(false)} />
+      <DeleteClientDialog client={deleteClient} onClose={() => setDeleteClient(null)} />
     </Box>
   );
 }

@@ -65,7 +65,7 @@ class AngelOneAdapter(BrokerAdapter):
 
     async def get_holdings(self) -> list[HoldingData]:
         if self.is_sandbox:
-            return get_mock_holdings(self.api_key or "angelone_sandbox")
+            return []  # Sandbox mode: no real broker connection, portfolio must be built from real trades
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(
                 f"{SMARTAPI_BASE}/rest/secure/angelbroking/portfolio/v1/getAllHolding",
@@ -100,7 +100,7 @@ class AngelOneAdapter(BrokerAdapter):
 
     async def get_funds(self) -> FundsData:
         if self.is_sandbox:
-            return FundsData(available_cash=500000.0, used_margin=0.0, total_balance=500000.0)
+            return FundsData(available_cash=0.0, used_margin=0.0, total_balance=0.0)
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(
                 f"{SMARTAPI_BASE}/rest/secure/angelbroking/user/v1/getRMS",

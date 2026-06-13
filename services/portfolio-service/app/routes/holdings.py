@@ -130,6 +130,24 @@ async def update_holding_price(
     return holding
 
 
+@router.delete("/by-broker/{broker_account_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def clear_holdings_by_broker(
+    broker_account_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    _: CurrentUser = Depends(require_portfolio_manager()),
+):
+    """Remove all active holdings for a broker account — called before re-importing from live sync."""
+    result = await db.execute(
+        select(Holding).where(
+            and_(Holding.broker_account_id == broker_account_id, Holding.status == HoldingStatus.ACTIVE)
+        )
+    )
+    holdings = result.scalars().all()
+    for h in holdings:
+        h.status = HoldingStatus.CLOSED
+    await db.flush()
+
+
 @router.delete("/{holding_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def close_holding(
     holding_id: UUID,

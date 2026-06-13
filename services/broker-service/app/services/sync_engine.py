@@ -69,6 +69,10 @@ async def sync_client_holdings(
             holdings = await adapter.get_holdings()
             funds = await adapter.get_funds()
 
+            # Replace semantics: clear existing holdings before inserting fresh data
+            # so stale positions (sold stocks) are removed automatically
+            await _clear_broker_holdings(broker_account_id=cred.id, auth_token=auth_token)
+
             synced = await _push_holdings_to_portfolio(
                 client_id=client_id,
                 broker_account_id=cred.id,
@@ -112,6 +116,16 @@ async def sync_client_holdings(
         "errors": errors,
         "duration_seconds": round(time.time() - started, 2),
     }
+
+
+async def _clear_broker_holdings(broker_account_id: UUID, auth_token: str) -> None:
+    """Delete all active holdings for a broker account before re-importing."""
+    headers = {"Authorization": f"Bearer {auth_token}"}
+    try:
+        async with httpx.AsyncClient(timeout=10.0, base_url=settings.PORTFOLIO_SERVICE_URL) as client:
+            await client.delete(f"/api/v1/holdings/by-broker/{broker_account_id}", headers=headers)
+    except Exception as e:
+        logger.warning("clear_broker_holdings_failed", broker_account_id=str(broker_account_id), error=str(e))
 
 
 async def _push_holdings_to_portfolio(

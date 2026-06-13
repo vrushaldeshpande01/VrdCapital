@@ -12,6 +12,18 @@ from sqlalchemy.dialects.postgresql import UUID
 from app.database import Base
 
 
+class ProductType(str, PyEnum):
+    CNC  = "CNC"
+    MIS  = "MIS"
+    NRML = "NRML"
+
+
+class Validity(str, PyEnum):
+    DAY = "DAY"
+    IOC = "IOC"
+    TTL = "TTL"
+
+
 class OrderStatus(str, PyEnum):
     PENDING = "PENDING"
     SUBMITTED = "SUBMITTED"
@@ -67,12 +79,18 @@ class Order(Base):
     exchange = Column(String(10), nullable=False, default="NSE")
     isin = Column(String(12), nullable=True)
 
+    # Instrument reference (optional — symbol/exchange always stored directly)
+    instrument_id = Column(UUID(as_uuid=True), nullable=True)
+
     # Order params
     side = Column(Enum(OrderSide, schema="orders"), nullable=False)
     price_type = Column(Enum(PriceType, schema="orders"), nullable=False, default=PriceType.MARKET)
+    product_type = Column(Enum(ProductType, schema="orders"), nullable=False, default=ProductType.CNC)
+    validity = Column(Enum(Validity, schema="orders"), nullable=False, default=Validity.DAY)
     quantity = Column(Integer, nullable=False)
-    price = Column(Numeric(12, 4), nullable=True)           # LIMIT price
-    trigger_price = Column(Numeric(12, 4), nullable=True)  # SL trigger
+    price = Column(Numeric(12, 4), nullable=True)
+    trigger_price = Column(Numeric(12, 4), nullable=True)
+    tag = Column(String(100), nullable=True)
 
     # Execution result
     status = Column(Enum(OrderStatus, schema="orders"), nullable=False, default=OrderStatus.PENDING)

@@ -15,6 +15,7 @@ import {
   AdminPanelSettings as AdminIcon,
   TrendingUp as TrendingUpIcon,
   MonitorHeart as ObservabilityIcon,
+  CandlestickChart as TradingIcon,
 } from '@mui/icons-material';
 import { useAppSelector } from '@/store';
 
@@ -32,6 +33,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Portfolio', path: '/portfolio', icon: <PortfolioIcon /> },
   { label: 'Orders', path: '/orders', icon: <OrdersIcon /> },
   { label: 'Basket Orders', path: '/basket-orders', icon: <TrendingUpIcon />, roles: ['admin', 'portfolio_manager'] },
+  { label: 'Trading', path: '/trading', icon: <TradingIcon />, roles: ['admin', 'portfolio_manager'] },
   { label: 'Reports', path: '/reports', icon: <ReportsIcon /> },
   { label: 'Notifications', path: '/notifications', icon: <NotificationsIcon /> },
 ];

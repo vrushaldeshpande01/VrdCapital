@@ -16,6 +16,7 @@ import BasketOrdersPage from '@/pages/BasketOrders';
 import ReportsPage from '@/pages/Reports';
 import NotificationsPage from '@/pages/Notifications';
 import ObservabilityPage from '@/pages/Observability';
+import TradingPage from '@/pages/Trading';
 
 const theme = createTheme({
   palette: {
@@ -104,6 +105,7 @@ export default function App() {
           <Route path="reports" element={<ErrorBoundary><ReportsPage /></ErrorBoundary>} />
           <Route path="notifications" element={<ErrorBoundary><NotificationsPage /></ErrorBoundary>} />
           <Route path="observability" element={<ErrorBoundary><ObservabilityPage /></ErrorBoundary>} />
+          <Route path="trading" element={<ErrorBoundary><TradingPage /></ErrorBoundary>} />
         </Route>
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>

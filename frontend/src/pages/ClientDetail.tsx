@@ -1,20 +1,23 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Box, Card, CardContent, Typography, Grid, Chip, Button,
-  Avatar, Divider, Tab, Tabs, Table, TableBody, TableRow,
+  Avatar, Divider, Tab, Tabs, Table, TableBody, TableHead, TableRow,
   TableCell, IconButton, Dialog, DialogTitle, DialogContent,
   DialogActions, TextField, MenuItem, Switch, FormControlLabel,
   Alert, LinearProgress, Tooltip, CircularProgress,
 } from '@mui/material';
 import {
   ArrowBack, Edit, CheckCircle, Cancel, Add, Sync,
-  Delete, Link as LinkIcon, LinkOff, PlayArrow, History,
+  Delete, Link as LinkIcon, LinkOff, History,
 } from '@mui/icons-material';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSnackbar } from 'notistack';
 import { clientsService } from '@/api/clients';
 import { brokerService, BrokerCredential } from '@/api/broker';
+import { portfolioService } from '@/api/portfolio';
+import { ordersService } from '@/api/orders';
 import { useState } from 'react';
+import type { Holding } from '@/types';
 
 const BROKER_COLORS: Record<string, string> = {
   zerodha: '#387ED1',
@@ -205,10 +208,12 @@ function BrokerCard({ cred, clientId }: { cred: BrokerCredential; clientId: stri
                 {testing ? <CircularProgress size={16} /> : <LinkIcon fontSize="small" />}
               </IconButton>
             </Tooltip>
-            <Tooltip title="Sync Holdings">
-              <IconButton size="small" onClick={handleSync} disabled={syncing} color="primary">
-                {syncing ? <CircularProgress size={16} /> : <Sync fontSize="small" />}
-              </IconButton>
+            <Tooltip title={cred.is_sandbox ? 'Sandbox mode — live credentials required to import real holdings' : 'Sync Holdings from broker'}>
+              <span>
+                <IconButton size="small" onClick={handleSync} disabled={syncing || cred.is_sandbox} color="primary">
+                  {syncing ? <CircularProgress size={16} /> : <Sync fontSize="small" />}
+                </IconButton>
+              </span>
             </Tooltip>
             <Tooltip title="Remove">
               <IconButton size="small" color="error" onClick={() => deleteCred()}>
@@ -507,25 +512,11 @@ export default function ClientDetailPage() {
                 </Grid>
               )}
 
-              {tab === 1 && (
-                <Box sx={{ textAlign: 'center', py: 6 }}>
-                  <Typography color="text.secondary" gutterBottom>
-                    Use the <strong>Sync</strong> button on a linked broker account to pull live holdings.
-                  </Typography>
-                  <Button variant="contained" startIcon={<PlayArrow />}
-                    onClick={() => navigate(`/portfolio?client=${id}`)} sx={{ borderRadius: 2, mt: 1 }}>
-                    View in Portfolio
-                  </Button>
-                </Box>
-              )}
+              {tab === 1 && <ClientHoldingsTab clientId={id!} />}
 
               {tab === 2 && <SyncLogsTab clientId={id!} />}
 
-              {tab === 3 && (
-                <Box sx={{ textAlign: 'center', py: 6 }}>
-                  <Typography color="text.secondary">Order history will be available in Phase 4</Typography>
-                </Box>
-              )}
+              {tab === 3 && <ClientOrdersTab clientId={id!} />}
             </CardContent>
           </Card>
         </Grid>
@@ -545,6 +536,137 @@ export default function ClientDetailPage() {
           onSaved={() => qc.invalidateQueries({ queryKey: ['client', id] })}
         />
       )}
+    </Box>
+  );
+}
+
+function ClientHoldingsTab({ clientId }: { clientId: string }) {
+  const { data: holdings = [], isLoading } = useQuery({
+    queryKey: ['holdings', clientId],
+    queryFn: () => portfolioService.getHoldings(clientId),
+    refetchInterval: 30_000,
+  });
+
+  if (isLoading) return <LinearProgress />;
+  if (holdings.length === 0) return (
+    <Alert severity="info" sx={{ mb: 1 }}>
+      No holdings yet. To populate this portfolio, link a broker account with <strong>live credentials</strong> (disable sandbox mode) and trigger a Sync. Holdings are imported directly from the broker's API.
+    </Alert>
+  );
+
+  const fmt = (v: number | string | null | undefined) => {
+    if (v == null) return '—';
+    const n = Number(v);
+    if (isNaN(n)) return '—';
+    return `₹${n.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+  };
+
+  const totalInvested = holdings.reduce((s, h) => s + Number(h.invested_value || 0), 0);
+  const totalValue = holdings.reduce((s, h) => s + Number(h.current_value || 0), 0);
+  const totalPnl = totalValue - totalInvested;
+
+  return (
+    <Box>
+      {/* Summary strip */}
+      <Box sx={{ display: 'flex', gap: 3, mb: 2, p: 1.5, bgcolor: '#f5f5f5', borderRadius: 2, flexWrap: 'wrap' }}>
+        <Box><Typography variant="caption" color="text.secondary">Holdings</Typography><Typography fontWeight={700}>{holdings.length}</Typography></Box>
+        <Box><Typography variant="caption" color="text.secondary">Invested</Typography><Typography fontWeight={700}>{fmt(totalInvested)}</Typography></Box>
+        <Box><Typography variant="caption" color="text.secondary">Current Value</Typography><Typography fontWeight={700}>{fmt(totalValue)}</Typography></Box>
+        <Box>
+          <Typography variant="caption" color="text.secondary">Unrealized P&L</Typography>
+          <Typography fontWeight={700} color={totalPnl >= 0 ? 'success.main' : 'error.main'}>
+            {totalPnl >= 0 ? '+' : ''}{fmt(totalPnl)}
+          </Typography>
+        </Box>
+      </Box>
+
+      <Box sx={{ overflowX: 'auto' }}>
+        <Table size="small">
+          <TableHead>
+            <TableRow sx={{ bgcolor: '#fafafa' }}>
+              {['Symbol', 'Qty', 'Avg Price', 'Current Price', 'Invested', 'Value', 'P&L', 'Sector'].map(h => (
+                <TableCell key={h} sx={{ fontWeight: 700, fontSize: 12 }}>{h}</TableCell>
+              ))}
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {holdings.map((h: Holding) => {
+              const pnl = Number(h.unrealized_pnl || 0);
+              return (
+                <TableRow key={h.id} hover>
+                  <TableCell>
+                    <Typography variant="body2" fontWeight={700}>{h.symbol}</Typography>
+                    {h.name && <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block', maxWidth: 100 }}>{h.name}</Typography>}
+                  </TableCell>
+                  <TableCell sx={{ fontSize: 13 }}>{Number(h.quantity).toLocaleString('en-IN')}</TableCell>
+                  <TableCell sx={{ fontSize: 13 }}>{fmt(h.average_buy_price)}</TableCell>
+                  <TableCell sx={{ fontSize: 13, fontWeight: 600 }}>{h.current_price ? fmt(h.current_price) : '—'}</TableCell>
+                  <TableCell sx={{ fontSize: 13 }}>{fmt(h.invested_value)}</TableCell>
+                  <TableCell sx={{ fontSize: 13, fontWeight: 600 }}>{fmt(h.current_value)}</TableCell>
+                  <TableCell>
+                    <Typography fontSize={13} fontWeight={600} color={pnl >= 0 ? 'success.main' : 'error.main'}>
+                      {pnl >= 0 ? '+' : ''}{fmt(pnl)}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    {h.sector && <Chip label={h.sector} size="small" variant="outlined" sx={{ height: 20, fontSize: 10 }} />}
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </Box>
+    </Box>
+  );
+}
+
+function ClientOrdersTab({ clientId }: { clientId: string }) {
+  const STATUS_COLOR: Record<string, 'success' | 'warning' | 'error' | 'default' | 'info'> = {
+    EXECUTED: 'success', PENDING: 'warning', OPEN: 'info',
+    SUBMITTED: 'info', CANCELLED: 'error', REJECTED: 'error', FAILED: 'error',
+  };
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['client-orders', clientId],
+    queryFn: () => ordersService.list({ client_id: clientId, page: 1, size: 50 }).then(r => r.data),
+    refetchInterval: 30_000,
+  });
+
+  const orders = data?.items || [];
+
+  if (isLoading) return <LinearProgress />;
+  if (orders.length === 0) return (
+    <Alert severity="info">No orders placed for this client yet. Use the Orders page to place orders.</Alert>
+  );
+
+  return (
+    <Box sx={{ overflowX: 'auto' }}>
+      <Table size="small">
+        <TableHead>
+          <TableRow sx={{ bgcolor: '#fafafa' }}>
+            {['Symbol', 'Side', 'Type', 'Qty', 'Price', 'Broker', 'Status', 'Date'].map(h => (
+              <TableCell key={h} sx={{ fontWeight: 700, fontSize: 12 }}>{h}</TableCell>
+            ))}
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {orders.map((o) => (
+            <TableRow key={o.id} hover>
+              <TableCell><Typography variant="body2" fontWeight={700}>{o.symbol}</Typography><Typography variant="caption" color="text.secondary">{o.exchange}</Typography></TableCell>
+              <TableCell><Chip label={o.side} size="small" color={o.side === 'BUY' ? 'success' : 'error'} sx={{ height: 20, fontSize: 11, fontWeight: 700 }} /></TableCell>
+              <TableCell sx={{ fontSize: 12 }}>{o.price_type}</TableCell>
+              <TableCell sx={{ fontSize: 13 }}>{o.quantity}</TableCell>
+              <TableCell sx={{ fontSize: 13 }}>
+                {o.average_price ? `₹${Number(o.average_price).toLocaleString('en-IN')}` : o.price ? `₹${Number(o.price).toLocaleString('en-IN')}` : 'MARKET'}
+              </TableCell>
+              <TableCell sx={{ fontSize: 12, textTransform: 'capitalize' }}>{o.broker}</TableCell>
+              <TableCell><Chip label={o.status} size="small" color={STATUS_COLOR[o.status] || 'default'} variant="outlined" sx={{ height: 20, fontSize: 11 }} /></TableCell>
+              <TableCell><Typography fontSize={11} color="text.secondary">{new Date(o.placed_at).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' })}</Typography></TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
     </Box>
   );
 }

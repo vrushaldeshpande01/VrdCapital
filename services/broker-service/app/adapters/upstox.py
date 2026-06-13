@@ -54,7 +54,7 @@ class UpstoxAdapter(BrokerAdapter):
 
     async def get_holdings(self) -> list[HoldingData]:
         if self.is_sandbox:
-            return get_mock_holdings(self.api_key or "upstox_sandbox")
+            return []  # Sandbox mode: no real broker connection, portfolio must be built from real trades
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(f"{UPSTOX_BASE}/portfolio/long-term-holdings", headers=self._headers())
         resp.raise_for_status()
@@ -83,7 +83,7 @@ class UpstoxAdapter(BrokerAdapter):
 
     async def get_funds(self) -> FundsData:
         if self.is_sandbox:
-            return FundsData(available_cash=500000.0, used_margin=0.0, total_balance=500000.0)
+            return FundsData(available_cash=0.0, used_margin=0.0, total_balance=0.0)
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(f"{UPSTOX_BASE}/user/fund-and-margin", headers=self._headers())
         resp.raise_for_status()

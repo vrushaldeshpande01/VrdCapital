@@ -6,21 +6,31 @@ from uuid import UUID
 
 from pydantic import BaseModel, field_validator
 
-from app.models.order import OrderStatus, OrderSide, PriceType, BasketStatus
+from app.models.order import OrderStatus, OrderSide, PriceType, ProductType, Validity, BasketStatus
 
 
 class OrderCreate(BaseModel):
     client_id: UUID
     broker_credential_id: Optional[UUID] = None
-    broker: str
+    broker: str = "sandbox"
     symbol: str
     exchange: str = "NSE"
     side: OrderSide
     price_type: PriceType = PriceType.MARKET
+    product_type: ProductType = ProductType.CNC
+    validity: Validity = Validity.DAY
     quantity: int
     price: Optional[Decimal] = None
     trigger_price: Optional[Decimal] = None
+    tag: Optional[str] = None
     basket_id: Optional[UUID] = None
+
+
+class OrderModifyRequest(BaseModel):
+    quantity: Optional[int] = None
+    price: Optional[Decimal] = None
+    trigger_price: Optional[Decimal] = None
+    validity: Optional[Validity] = None
 
 
 class OrderResponse(BaseModel):
@@ -33,9 +43,12 @@ class OrderResponse(BaseModel):
     exchange: str
     side: OrderSide
     price_type: PriceType
+    product_type: ProductType
+    validity: Validity
     quantity: int
     price: Optional[Decimal]
     trigger_price: Optional[Decimal]
+    tag: Optional[str]
     status: OrderStatus
     broker_order_id: Optional[str]
     executed_quantity: int
