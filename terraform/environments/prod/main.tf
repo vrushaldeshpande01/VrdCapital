@@ -142,6 +142,33 @@ module "jenkins" {
   eks_cluster_name  = module.eks.cluster_name
 }
 
+# ALB DNS name is assigned by the AWS Load Balancer Controller after the
+# Ingress resource is applied. Read it back via a data source so Terraform
+# can wire it to the DNS module without manual copy-paste.
+# NOTE: This data source works only after the ALB exists (after k8s apply).
+#       On first apply, set alb_dns_name_override in terraform.tfvars instead.
+data "aws_lb" "vrdcapital" {
+  count = var.alb_dns_name_override == "" ? 1 : 0
+  tags = {
+    "ingress.k8s.aws/stack" = "vrdcapital/vrdcapital-ingress"
+  }
+}
+
+locals {
+  alb_dns_name = var.alb_dns_name_override != "" ? var.alb_dns_name_override : (
+    length(data.aws_lb.vrdcapital) > 0 ? data.aws_lb.vrdcapital[0].dns_name : ""
+  )
+}
+
+module "dns" {
+  source = "../../modules/dns"
+
+  project      = var.project
+  environment  = var.environment
+  domain       = var.domain
+  alb_dns_name = local.alb_dns_name
+}
+
 module "irsa" {
   source = "../../modules/irsa"
 

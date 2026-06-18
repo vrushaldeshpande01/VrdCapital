@@ -36,3 +36,12 @@ zerodha_api_secret = "your_zerodha_api_secret"
 
 # Jenkins EC2 key pair — create this in AWS Console > EC2 > Key Pairs first
 jenkins_key_name   = "vrdcapital-jenkins"
+
+# ── DNS / TLS (Track 6) ───────────────────────────────────────────────────────
+# Leave domain empty until you purchase a domain.
+# The app will be reachable via the ALB DNS name in the meantime.
+domain                = ""       # e.g. "vrdcapital.in" once purchased
+
+# After first deploy, paste the ALB DNS from: kubectl get ingress -n vrdcapital
+# Only needed when domain is set and the data source can't resolve it yet.
+alb_dns_name_override = ""       # e.g. "k8s-vrdcapi-abc123.ap-south-1.elb.amazonaws.com"

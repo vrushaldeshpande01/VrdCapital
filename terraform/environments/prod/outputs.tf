@@ -55,6 +55,26 @@ output "jenkins_ssh" {
   value       = "ssh -i ~/.ssh/${var.jenkins_key_name}.pem ubuntu@${module.jenkins.public_ip}"
 }
 
+output "app_url" {
+  description = "Application URL — use this to access VrdCapital"
+  value       = module.dns.app_url
+}
+
+output "alb_dns_name" {
+  description = "Raw ALB DNS name — use this before a domain is purchased, or as alb_dns_name_override"
+  value       = local.alb_dns_name
+}
+
+output "route53_name_servers" {
+  description = "Point your domain registrar NS records to these after purchasing a domain"
+  value       = module.dns.name_servers
+}
+
+output "acm_certificate_arn" {
+  description = "ACM cert ARN — paste into ingress.yaml annotation when domain is ready"
+  value       = module.dns.certificate_arn
+}
+
 output "irsa_external_secrets_role_arn" {
   description = "IRSA role ARN for ExternalSecrets — annotate vrdcapital-sa with this"
   value       = module.irsa.external_secrets_role_arn

@@ -29,3 +29,5 @@ images:
 patches:
   - path: patches/replicas.yaml
   - path: patches/resources.yaml
+  # Uncomment when domain + ACM cert are ready (see patches/ingress-tls.yaml):
+  # - path: patches/ingress-tls.yaml

@@ -1,0 +1,135 @@
+# Ingress TLS patch — activate when domain + ACM cert are ready.
+#
+# How to use:
+#   1. Run: terraform output acm_certificate_arn
+#   2. Paste the ARN below replacing CERT_ARN_HERE
+#   3. Uncomment this patch in overlays/prod/kustomization.yaml
+#   4. Run: kubectl apply -k deployment/k8s/overlays/prod
+#
+# Until then, the base ingress.yaml serves HTTP on the ALB DNS name.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: vrdcapital-ingress
+  namespace: vrdcapital
+  annotations:
+    alb.ingress.kubernetes.io/certificate-arn: "CERT_ARN_HERE"
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+spec:
+  rules:
+    - host: "DOMAIN_HERE"
+      http:
+        paths:
+          - path: /api/v1/auth
+            pathType: Prefix
+            backend:
+              service:
+                name: auth-service
+                port:
+                  number: 8001
+          - path: /api/v1/clients
+            pathType: Prefix
+            backend:
+              service:
+                name: client-service
+                port:
+                  number: 8002
+          - path: /api/v1/portfolio
+            pathType: Prefix
+            backend:
+              service:
+                name: portfolio-service
+                port:
+                  number: 8003
+          - path: /api/v1/broker
+            pathType: Prefix
+            backend:
+              service:
+                name: broker-service
+                port:
+                  number: 8004
+          - path: /api/v1/sync
+            pathType: Prefix
+            backend:
+              service:
+                name: broker-service
+                port:
+                  number: 8004
+          - path: /api/v1/credentials
+            pathType: Prefix
+            backend:
+              service:
+                name: broker-service
+                port:
+                  number: 8004
+          - path: /api/v1/market
+            pathType: Prefix
+            backend:
+              service:
+                name: broker-service
+                port:
+                  number: 8004
+          - path: /api/v1/orders
+            pathType: Prefix
+            backend:
+              service:
+                name: order-service
+                port:
+                  number: 8005
+          - path: /api/v1/trades
+            pathType: Prefix
+            backend:
+              service:
+                name: order-service
+                port:
+                  number: 8005
+          - path: /api/v1/instruments
+            pathType: Prefix
+            backend:
+              service:
+                name: order-service
+                port:
+                  number: 8005
+          - path: /api/v1/trading
+            pathType: Prefix
+            backend:
+              service:
+                name: order-service
+                port:
+                  number: 8005
+          - path: /api/v1/funds
+            pathType: Prefix
+            backend:
+              service:
+                name: order-service
+                port:
+                  number: 8005
+          - path: /api/v1/notifications
+            pathType: Prefix
+            backend:
+              service:
+                name: notification-service
+                port:
+                  number: 8006
+          - path: /api/v1/alerts
+            pathType: Prefix
+            backend:
+              service:
+                name: notification-service
+                port:
+                  number: 8006
+          - path: /api/v1/reports
+            pathType: Prefix
+            backend:
+              service:
+                name: report-service
+                port:
+                  number: 8007
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 80

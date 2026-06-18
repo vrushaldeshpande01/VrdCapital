@@ -143,3 +143,15 @@ variable "jenkins_key_name" {
   description = "EC2 Key Pair name for SSH access to Jenkins (create in AWS console first)"
   type        = string
 }
+
+variable "domain" {
+  description = "Root domain name for the app (e.g. vrdcapital.in). Leave empty until domain is purchased."
+  type        = string
+  default     = ""
+}
+
+variable "alb_dns_name_override" {
+  description = "Manually set the ALB DNS name (copy from: kubectl get ingress -n vrdcapital). Required when domain is set but the data source can't resolve the ALB yet."
+  type        = string
+  default     = ""
+}
