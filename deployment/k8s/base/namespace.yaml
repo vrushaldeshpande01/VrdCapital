@@ -6,28 +6,31 @@ metadata:
     name: vrdcapital
     environment: production
 ---
+# ServiceAccount with IRSA annotation — allows pods to read AWS Secrets Manager
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: vrdcapital-sa
   namespace: vrdcapital
   annotations:
-    eks.amazonaws.com/role-arn: arn:aws:iam::ACCOUNT_ID:role/vrdcapital-eks-role
+    eks.amazonaws.com/role-arn: arn:aws:iam::ACCOUNT_ID:role/vrdcapital-prod-secrets-read
 ---
+# NetworkPolicy — pods can only talk to each other inside the namespace
+# External egress allowed (Zerodha API, ECR pulls, Secrets Manager)
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: vrdcapital-network-policy
+  name: default-deny-external-ingress
   namespace: vrdcapital
 spec:
   podSelector: {}
   policyTypes:
     - Ingress
-    - Egress
   ingress:
     - from:
         - namespaceSelector:
             matchLabels:
               name: vrdcapital
-  egress:
-    - {}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system

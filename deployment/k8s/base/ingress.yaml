@@ -7,32 +7,148 @@ metadata:
     kubernetes.io/ingress.class: alb
     alb.ingress.kubernetes.io/scheme: internet-facing
     alb.ingress.kubernetes.io/target-type: ip
-    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:REGION:ACCOUNT_ID:certificate/CERT_ID
-    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    # Remove certificate-arn when no domain — ALB serves HTTP only
+    # alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:ap-south-1:ACCOUNT_ID:certificate/CERT_ID
+    # alb.ingress.kubernetes.io/ssl-redirect: "443"
     alb.ingress.kubernetes.io/healthcheck-path: /health
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: "30"
+    alb.ingress.kubernetes.io/success-codes: "200"
 spec:
   rules:
-    - host: app.vrdcapital.com
-      http:
+    - http:
         paths:
-          - path: /api/auth
+          # Auth service
+          - path: /api/v1/auth
             pathType: Prefix
             backend:
               service:
                 name: auth-service
                 port:
-                  number: 80
-          - path: /api/clients
+                  number: 8001
+
+          # Client service
+          - path: /api/v1/clients
             pathType: Prefix
             backend:
               service:
                 name: client-service
                 port:
-                  number: 80
+                  number: 8002
+
+          # Portfolio service
+          - path: /api/v1/portfolio
+            pathType: Prefix
+            backend:
+              service:
+                name: portfolio-service
+                port:
+                  number: 8003
+
+          # Broker service (sync, credentials, market data)
+          - path: /api/v1/broker
+            pathType: Prefix
+            backend:
+              service:
+                name: broker-service
+                port:
+                  number: 8004
+
+          - path: /api/v1/sync
+            pathType: Prefix
+            backend:
+              service:
+                name: broker-service
+                port:
+                  number: 8004
+
+          - path: /api/v1/credentials
+            pathType: Prefix
+            backend:
+              service:
+                name: broker-service
+                port:
+                  number: 8004
+
+          - path: /api/v1/market
+            pathType: Prefix
+            backend:
+              service:
+                name: broker-service
+                port:
+                  number: 8004
+
+          # Order service
+          - path: /api/v1/orders
+            pathType: Prefix
+            backend:
+              service:
+                name: order-service
+                port:
+                  number: 8005
+
+          - path: /api/v1/trades
+            pathType: Prefix
+            backend:
+              service:
+                name: order-service
+                port:
+                  number: 8005
+
+          - path: /api/v1/instruments
+            pathType: Prefix
+            backend:
+              service:
+                name: order-service
+                port:
+                  number: 8005
+
+          - path: /api/v1/trading
+            pathType: Prefix
+            backend:
+              service:
+                name: order-service
+                port:
+                  number: 8005
+
+          - path: /api/v1/funds
+            pathType: Prefix
+            backend:
+              service:
+                name: order-service
+                port:
+                  number: 8005
+
+          # Notification service
+          - path: /api/v1/notifications
+            pathType: Prefix
+            backend:
+              service:
+                name: notification-service
+                port:
+                  number: 8006
+
+          - path: /api/v1/alerts
+            pathType: Prefix
+            backend:
+              service:
+                name: notification-service
+                port:
+                  number: 8006
+
+          # Report service
+          - path: /api/v1/reports
+            pathType: Prefix
+            backend:
+              service:
+                name: report-service
+                port:
+                  number: 8007
+
+          # Frontend — catch-all, must be last
           - path: /
             pathType: Prefix
             backend:
               service:
                 name: frontend
                 port:
-                  number: 3000
+                  number: 80

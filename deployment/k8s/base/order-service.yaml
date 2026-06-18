@@ -1,34 +1,34 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: client-service
+  name: order-service
   namespace: vrdcapital
   labels:
-    app: client-service
+    app: order-service
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: client-service
+      app: order-service
   template:
     metadata:
       labels:
-        app: client-service
+        app: order-service
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/path: "/metrics"
-        prometheus.io/port: "8002"
+        prometheus.io/port: "8005"
     spec:
       serviceAccountName: vrdcapital-sa
       securityContext:
         runAsNonRoot: true
         runAsUser: 1001
       containers:
-        - name: client-service
-          image: ACCOUNT_ID.dkr.ecr.ap-south-1.amazonaws.com/vrdcapital/client-service:latest
+        - name: order-service
+          image: ACCOUNT_ID.dkr.ecr.ap-south-1.amazonaws.com/vrdcapital/order-service:latest
           imagePullPolicy: Always
           ports:
-            - containerPort: 8002
+            - containerPort: 8005
               name: http
           envFrom:
             - configMapRef:
@@ -37,22 +37,22 @@ spec:
                 name: vrdcapital-secrets
           resources:
             requests:
-              cpu: "100m"
-              memory: "128Mi"
+              cpu: "200m"
+              memory: "256Mi"
             limits:
-              cpu: "500m"
-              memory: "512Mi"
+              cpu: "1000m"
+              memory: "1Gi"
           readinessProbe:
             httpGet:
               path: /ready
-              port: 8002
+              port: 8005
             initialDelaySeconds: 10
             periodSeconds: 10
             failureThreshold: 3
           livenessProbe:
             httpGet:
               path: /live
-              port: 8002
+              port: 8005
             initialDelaySeconds: 20
             periodSeconds: 30
             failureThreshold: 3
@@ -60,13 +60,13 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: client-service
+  name: order-service
   namespace: vrdcapital
 spec:
   selector:
-    app: client-service
+    app: order-service
   ports:
-    - port: 8002
-      targetPort: 8002
+    - port: 8005
+      targetPort: 8005
       name: http
   type: ClusterIP

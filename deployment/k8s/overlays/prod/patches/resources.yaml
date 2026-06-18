@@ -1,0 +1,55 @@
+# Prod resource limits — higher than base for production load
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: broker-service
+  namespace: vrdcapital
+spec:
+  template:
+    spec:
+      containers:
+        - name: broker-service
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "2000m"
+              memory: "2Gi"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order-service
+  namespace: vrdcapital
+spec:
+  template:
+    spec:
+      containers:
+        - name: order-service
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "2000m"
+              memory: "2Gi"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: portfolio-service
+  namespace: vrdcapital
+spec:
+  template:
+    spec:
+      containers:
+        - name: portfolio-service
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
