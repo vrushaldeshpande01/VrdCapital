@@ -8,7 +8,9 @@ from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_
 
 from app.config import get_settings
 from app.database import engine, Base
-from app.routes import credentials, sync, market, orders as broker_orders
+from app.routes import credentials, sync, market, orders as broker_orders, zerodha_auth
+from app.routes.ticker import router as ticker_router
+from app.services.price_streamer import price_streamer
 
 settings = get_settings()
 
@@ -30,8 +32,19 @@ async def lifespan(app: FastAPI):
     logger.info("broker_service_starting", environment=settings.ENVIRONMENT)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+    from app.database import AsyncSessionLocal
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def _db_factory():
+        async with AsyncSessionLocal() as session:
+            yield session
+
+    await price_streamer.start(settings.REDIS_URL, _db_factory)
     logger.info("broker_service_started")
     yield
+    await price_streamer.stop()
     await engine.dispose()
 
 
@@ -70,6 +83,8 @@ app.include_router(credentials.router, prefix="/api/v1")
 app.include_router(sync.router, prefix="/api/v1")
 app.include_router(market.router, prefix="/api/v1")
 app.include_router(broker_orders.router, prefix="/api/v1")
+app.include_router(zerodha_auth.router, prefix="/api/v1")
+app.include_router(ticker_router, prefix="/api/v1")
 
 
 @app.get("/health", tags=["Health"])

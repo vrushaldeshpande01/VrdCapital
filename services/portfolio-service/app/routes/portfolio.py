@@ -29,8 +29,9 @@ async def _get_active_holdings(db: AsyncSession, client_id: UUID) -> list:
 
 
 async def _get_cash(db: AsyncSession, client_id: UUID) -> Decimal:
+    # Use total_balance (net available after margin) not available_cash (gross)
     result = await db.execute(
-        select(func.sum(CashBalance.available_cash)).where(CashBalance.client_id == client_id)
+        select(func.sum(CashBalance.total_balance)).where(CashBalance.client_id == client_id)
     )
     return result.scalar() or Decimal("0")
 
@@ -103,7 +104,7 @@ async def get_aum(
     )
     all_holdings = result.scalars().all()
 
-    cash_result = await db.execute(select(func.sum(CashBalance.available_cash)))
+    cash_result = await db.execute(select(func.sum(CashBalance.total_balance)))
     total_cash = cash_result.scalar() or Decimal("0")
 
     client_result = await db.execute(

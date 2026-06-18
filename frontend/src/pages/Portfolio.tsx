@@ -13,6 +13,7 @@ import {
 } from 'recharts';
 import { portfolioService } from '@/api/portfolio';
 import { clientsService } from '@/api/clients';
+import { tradingService, TradingHolding } from '@/api/trading';
 import type { Holding } from '@/types';
 
 const SECTOR_COLORS = ['#1a237e', '#00897b', '#f57c00', '#c62828', '#6a1b9a', '#37474f', '#0277bd'];
@@ -83,12 +84,48 @@ export default function PortfolioPage() {
     refetchInterval: 30_000,
   });
 
-  const { data: holdings = [], isLoading: holdingsLoading } = useQuery({
+  const { data: brokerHoldings = [], isLoading: holdingsLoading } = useQuery({
     queryKey: ['holdings', clientId],
     queryFn: () => portfolioService.getHoldings(clientId),
     enabled: !!clientId,
     refetchInterval: 30_000,
   });
+
+  const { data: tradingHoldings = [] } = useQuery({
+    queryKey: ['trading-holdings', clientId],
+    queryFn: () => tradingService.getHoldings(clientId).then(r => r.data),
+    enabled: !!clientId,
+    refetchInterval: 30_000,
+  });
+
+  // Use broker-synced holdings when available; fall back to trade-computed holdings
+  const useTradingFallback = brokerHoldings.length === 0 && tradingHoldings.length > 0;
+
+  // Normalise TradingHolding to the same shape used in the table
+  const normalizedTradingHoldings: Holding[] = tradingHoldings.map((h: TradingHolding) => ({
+    id: h.symbol,
+    client_id: clientId,
+    broker_account_id: '',
+    symbol: h.symbol,
+    name: h.symbol,
+    exchange: h.exchange,
+    quantity: h.quantity,
+    average_buy_price: h.avg_buy_price,
+    current_price: h.ltp,
+    invested_value: h.invested_value,
+    current_value: h.current_value,
+    unrealized_pnl: h.pnl,
+    unrealized_pnl_pct: h.pnl_pct,
+    day_pnl: null,
+    day_pnl_pct: null,
+    sector: null,
+    asset_class: 'EQUITY',
+    status: 'ACTIVE',
+    created_at: '',
+    updated_at: '',
+  } as unknown as Holding));
+
+  const holdings = useTradingFallback ? normalizedTradingHoldings : brokerHoldings;
 
   const { data: history = [] } = useQuery({
     queryKey: ['portfolio-history', clientId],
@@ -168,10 +205,15 @@ export default function PortfolioPage() {
                 />
               </Box>
 
+              {useTradingFallback && (
+                <Alert severity="info" sx={{ mb: 2 }}>
+                  Showing CNC trade-based holdings from the Trading Terminal. Broker-synced holdings will appear here once a live broker account is linked and synced.
+                </Alert>
+              )}
               {holdingsLoading ? (
                 <LinearProgress />
               ) : filtered.length === 0 ? (
-                <Alert severity="info">No holdings found. Add holdings to get started.</Alert>
+                <Alert severity="info">No holdings found. Place CNC orders from the Trading Terminal, or link a live broker account and trigger a sync.</Alert>
               ) : (
                 <Box sx={{ overflowX: 'auto' }}>
                   <Table size="small">

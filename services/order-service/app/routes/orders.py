@@ -17,7 +17,7 @@ from app.schemas.order import (
     OrderCancelRequest, OrderModifyRequest,
 )
 from app.core.dependencies import get_current_user, require_portfolio_manager, CurrentUser
-from app.services.order_executor import execute_order
+from app.services.order_executor import execute_order, update_portfolio_holding
 from app.services.publisher import publish_order_event
 from app.services.margin_service import validate_margin, block_margin, release_margin
 from prometheus_client import Counter as _Counter
@@ -138,6 +138,9 @@ async def place_order(
         actual_cost = fill_price * order.executed_quantity
         await release_margin(body.client_id, estimated_cost, db)
         await block_margin(body.client_id, actual_cost, db)
+        # Update portfolio holding (fire-and-forget; failure is non-fatal)
+        if body.product_type == ProductType.CNC:
+            await update_portfolio_holding(order, fill_price, token)
 
     # Release margin fully on rejection/failure
     if order.status in (OrderStatus.REJECTED, OrderStatus.FAILED):

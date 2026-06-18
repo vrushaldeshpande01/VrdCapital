@@ -33,8 +33,21 @@ export default function Positions({ clientId }: Props) {
     refetchInterval: 5000,
   });
 
-  const handleExit = (symbol: string, exchange: string) => {
-    dispatch(openOrderModal({ side: 'SELL', clientId }));
+  const handleExit = (symbol: string, exchange: string, ltp: string) => {
+    dispatch(openOrderModal({
+      instrument: {
+        id: symbol,
+        symbol,
+        name: symbol,
+        exchange,
+        instrument_type: 'EQUITY',
+        lot_size: 1,
+        tick_size: '0.05',
+        ltp,
+      },
+      side: 'SELL',
+      clientId,
+    }));
   };
 
   return (
@@ -110,7 +123,7 @@ export default function Positions({ clientId }: Props) {
                   <TableCell align="center">
                     {p.is_open && (
                       <Tooltip title="Exit position (place reverse MARKET order)">
-                        <IconButton size="small" color="warning" onClick={() => handleExit(p.symbol, p.exchange)}>
+                        <IconButton size="small" color="warning" onClick={() => handleExit(p.symbol, p.exchange, String(p.ltp))}>
                           <CallMadeIcon fontSize="inherit" />
                         </IconButton>
                       </Tooltip>

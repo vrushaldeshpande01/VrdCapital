@@ -15,6 +15,7 @@ import { useAppDispatch, useAppSelector } from '@/store';
 import { logout } from '@/store/authSlice';
 import { useSnackbar } from 'notistack';
 import { NotificationBell } from '@/components/NotificationBell';
+import GlobalSearch from '@/components/GlobalSearch';
 
 interface HeaderProps {
   drawerWidth: number;
@@ -56,6 +57,11 @@ export default function Header({ drawerWidth, onMenuClick }: HeaderProps) {
         >
           <MenuIcon />
         </IconButton>
+
+        <Box sx={{ flexGrow: 1 }} />
+
+        {/* Global search */}
+        <GlobalSearch />
 
         <Box sx={{ flexGrow: 1 }} />
 

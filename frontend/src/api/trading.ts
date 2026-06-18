@@ -48,6 +48,7 @@ export interface TradingOrder {
 export interface PlaceOrderPayload {
   client_id: string;
   broker?: string;
+  broker_credential_id?: string | null;
   symbol: string;
   exchange: string;
   side: OrderSide;

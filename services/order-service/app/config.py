@@ -6,6 +6,7 @@ class Settings(BaseSettings):
     AUTH_SERVICE_URL: str = "http://auth-service:8000"
     BROKER_SERVICE_URL: str = "http://broker-service:8000"
     CLIENT_SERVICE_URL: str = "http://client-service:8000"
+    PORTFOLIO_SERVICE_URL: str = "http://portfolio-service:8000"
     RABBITMQ_URL: str = "amqp://vrdcapital:rabbitmq123@rabbitmq:5672/"
 
     class Config:

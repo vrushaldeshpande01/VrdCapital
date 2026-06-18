@@ -77,4 +77,16 @@ export const clientsService = {
   removeBrokerAccount: async (clientId: string, accountId: string): Promise<void> => {
     await clientApi.delete(`/clients/${clientId}/broker-accounts/${accountId}`);
   },
+
+  bulkImport: async (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    const { data } = await clientApi.post<{
+      created: number; skipped: number; errors: number;
+      rows_created: { row: number; id: string; email: string; name: string }[];
+      rows_skipped: { row: number; email: string; reason: string }[];
+      rows_errored: { row: number; email: string; reason: string }[];
+    }>('/clients/import', form, { headers: { 'Content-Type': 'multipart/form-data' } });
+    return data;
+  },
 };

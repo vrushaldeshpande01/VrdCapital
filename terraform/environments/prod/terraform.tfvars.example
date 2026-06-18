@@ -1,0 +1,38 @@
+# Copy this file to terraform.tfvars and fill in the real values.
+# NEVER commit terraform.tfvars to git — it is in .gitignore.
+
+aws_region         = "ap-south-1"
+project            = "vrdcapital"
+environment        = "prod"
+
+# EKS
+k8s_version        = "1.29"
+node_instance_type = "t3.medium"
+node_min           = 2
+node_max           = 5
+node_desired       = 2
+
+# RDS PostgreSQL
+db_instance_class  = "db.t3.micro"
+db_name            = "vrdcapital"
+db_username        = "vrdcapital"
+db_password        = "CHANGE_ME_strong_password_here"
+
+# ElastiCache Redis
+redis_node_type    = "cache.t3.micro"
+redis_auth_token   = "CHANGE_ME_redis_auth_token_min_16_chars"
+
+# RabbitMQ (in-cluster, stored in Secrets Manager)
+rabbitmq_user      = "vrdcapital"
+rabbitmq_password  = "CHANGE_ME_rabbitmq_password"
+
+# App secrets
+app_secret_key     = "CHANGE_ME_minimum_32_character_secret_key"
+grafana_password   = "CHANGE_ME_grafana_password"
+
+# Zerodha — same keys from your .env file
+zerodha_api_key    = "your_zerodha_api_key"
+zerodha_api_secret = "your_zerodha_api_secret"
+
+# Jenkins EC2 key pair — create this in AWS Console > EC2 > Key Pairs first
+jenkins_key_name   = "vrdcapital-jenkins"

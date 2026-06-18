@@ -84,10 +84,6 @@ export default function BasketOrdersPage() {
 
   return (
     <Box>
-      <Box sx={{ mb: 3 }}>
-        <Typography variant="h5" fontWeight={700}>Basket Orders</Typography>
-        <Typography variant="body2" color="text.secondary">Execute a set of trades across multiple clients at once</Typography>
-      </Box>
 
       <Card sx={{ mb: 3 }}>
         <CardContent>

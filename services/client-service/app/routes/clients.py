@@ -1,9 +1,11 @@
+import csv
+import io
 import math
 from typing import Optional
 from uuid import UUID
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_
 from sqlalchemy.orm import selectinload
@@ -17,6 +19,139 @@ from app.schemas.client import (
 from app.core.dependencies import get_current_user, require_portfolio_manager, CurrentUser
 
 router = APIRouter(prefix="/clients", tags=["Clients"])
+
+# Required CSV columns and their aliases
+_CSV_REQUIRED = {"full_name", "email"}
+_CSV_OPTIONAL = {
+    "phone", "pan_number", "risk_profile", "annual_income",
+    "investment_goal", "investment_horizon_years", "notes",
+    "city", "state", "country",
+}
+_RISK_PROFILES = {"conservative", "moderate", "aggressive"}
+
+
+def _parse_csv_row(row: dict, managed_by: str) -> tuple[Client | None, str | None]:
+    """Return (Client, None) on success or (None, error_message) on failure."""
+    full_name = row.get("full_name", "").strip()
+    email = row.get("email", "").strip().lower()
+    if not full_name or not email:
+        return None, "full_name and email are required"
+
+    risk = row.get("risk_profile", "moderate").strip().lower() or "moderate"
+    if risk not in _RISK_PROFILES:
+        risk = "moderate"
+
+    annual_income = None
+    if row.get("annual_income"):
+        try:
+            annual_income = float(row["annual_income"])
+        except ValueError:
+            pass
+
+    horizon = None
+    if row.get("investment_horizon_years"):
+        try:
+            horizon = int(row["investment_horizon_years"])
+        except ValueError:
+            pass
+
+    client = Client(
+        full_name=full_name,
+        email=email,
+        phone=row.get("phone", "").strip() or "",
+        pan_number=row.get("pan_number", "").strip().upper() or None,
+        risk_profile=risk,
+        annual_income=annual_income,
+        investment_goal=row.get("investment_goal", "").strip() or None,
+        investment_horizon_years=horizon,
+        notes=row.get("notes", "").strip() or None,
+        city=row.get("city", "").strip() or None,
+        state=row.get("state", "").strip() or None,
+        country=row.get("country", "India").strip() or "India",
+        managed_by=managed_by,
+    )
+    return client, None
+
+
+@router.post("/import", status_code=200)
+async def bulk_import_clients(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(require_portfolio_manager()),
+):
+    """
+    Bulk-import clients from a CSV file.
+    Required columns: full_name, email
+    Optional: phone, pan_number, risk_profile, annual_income, investment_goal,
+              investment_horizon_years, notes, city, state, country
+    Skips rows with duplicate email/PAN. Returns per-row results.
+    """
+    if not file.filename or not file.filename.lower().endswith(".csv"):
+        raise HTTPException(status_code=400, detail="Only .csv files are accepted")
+
+    raw = await file.read()
+    try:
+        text = raw.decode("utf-8-sig")  # strip BOM if present
+    except UnicodeDecodeError:
+        text = raw.decode("latin-1")
+
+    reader = csv.DictReader(io.StringIO(text))
+    if not reader.fieldnames:
+        raise HTTPException(status_code=400, detail="CSV file is empty or has no header row")
+
+    headers = {h.strip().lower() for h in reader.fieldnames}
+    missing = _CSV_REQUIRED - headers
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"CSV missing required columns: {', '.join(sorted(missing))}",
+        )
+
+    created, skipped, errors = [], [], []
+
+    for row_num, raw_row in enumerate(reader, start=2):
+        row = {k.strip().lower(): v.strip() for k, v in raw_row.items() if k}
+        email = row.get("email", "").lower().strip()
+        pan = row.get("pan_number", "").upper().strip() or None
+
+        # Duplicate check
+        dup_email = (await db.execute(
+            select(Client).where(Client.email == email, Client.deleted_at.is_(None))
+        )).scalar_one_or_none()
+        if dup_email:
+            skipped.append({"row": row_num, "email": email, "reason": "email already exists"})
+            continue
+
+        if pan:
+            dup_pan = (await db.execute(
+                select(Client).where(Client.pan_number == pan, Client.deleted_at.is_(None))
+            )).scalar_one_or_none()
+            if dup_pan:
+                skipped.append({"row": row_num, "email": email, "reason": f"PAN {pan} already exists"})
+                continue
+
+        client, err = _parse_csv_row(row, current_user.user_id)
+        if err:
+            errors.append({"row": row_num, "email": email, "reason": err})
+            continue
+
+        db.add(client)
+        try:
+            await db.flush()
+            created.append({"row": row_num, "id": str(client.id), "email": email, "name": client.full_name})
+        except Exception as exc:
+            await db.rollback()
+            errors.append({"row": row_num, "email": email, "reason": str(exc)})
+
+    await db.commit()
+    return {
+        "created": len(created),
+        "skipped": len(skipped),
+        "errors": len(errors),
+        "rows_created": created,
+        "rows_skipped": skipped,
+        "rows_errored": errors,
+    }
 
 
 @router.post("", response_model=ClientResponse, status_code=status.HTTP_201_CREATED)

@@ -10,7 +10,10 @@ from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTEN
 
 from app.database import engine, Base
 from app.routes.notifications import router
+from app.routes.alerts import router as alerts_router
+from app.models import alert as _alert_model  # ensure table is registered in Base.metadata
 from app.services.consumer import start_consumer
+from app.services.market_subscriber import start_market_subscriber
 
 logging.basicConfig(level=logging.INFO)
 
@@ -26,17 +29,21 @@ async def lifespan(app: FastAPI):
         await conn.execute(text("CREATE SCHEMA IF NOT EXISTS notifications"))
         await conn.run_sync(Base.metadata.create_all)
 
-    # Start RabbitMQ consumer as background task
-    task = asyncio.create_task(start_consumer())
-    app.state.consumer_task = task
+    from app.config import settings as _cfg
+    # Start background tasks
+    consumer_task = asyncio.create_task(start_consumer())
+    market_task = asyncio.create_task(start_market_subscriber(_cfg.REDIS_URL))
+    app.state.consumer_task = consumer_task
+    app.state.market_task = market_task
 
     yield
 
-    task.cancel()
-    try:
-        await task
-    except asyncio.CancelledError:
-        pass
+    for t in (consumer_task, market_task):
+        t.cancel()
+        try:
+            await t
+        except asyncio.CancelledError:
+            pass
     await engine.dispose()
 
 
@@ -67,6 +74,7 @@ async def metrics_middleware(request: Request, call_next):
 
 
 app.include_router(router, prefix="/api/v1")
+app.include_router(alerts_router, prefix="/api/v1")
 
 
 @app.get("/metrics")

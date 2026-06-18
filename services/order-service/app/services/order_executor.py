@@ -13,7 +13,7 @@ from typing import Optional
 import httpx
 
 from app.config import settings
-from app.models.order import Order, OrderStatus, PriceType
+from app.models.order import Order, OrderStatus, OrderSide, PriceType
 
 
 def _mock_broker_order_id(broker: str) -> str:
@@ -37,6 +37,74 @@ def _mock_fill_price(order: Order) -> Decimal:
         "SUNPHARMA": Decimal("1820"), "TITAN": Decimal("3650"), "LTIM": Decimal("5120"),
     }
     return MARKET_PRICES.get(order.symbol.upper(), Decimal("1000"))
+
+
+async def update_portfolio_holding(order: Order, fill_price: Decimal, token: str) -> None:
+    """
+    After a CNC order executes, upsert the portfolio holding.
+    BUY → add qty to holding (portfolio service handles averaging).
+    SELL → reduce qty; close holding if qty reaches zero.
+    """
+    try:
+        headers = {"Authorization": f"Bearer {token}"}
+        portfolio_url = settings.PORTFOLIO_SERVICE_URL
+
+        if order.side == OrderSide.BUY:
+            await _with_client(
+                "POST",
+                f"{portfolio_url}/api/v1/holdings",
+                headers=headers,
+                json={
+                    "client_id": str(order.client_id),
+                    "broker_account_id": None,
+                    "symbol": order.symbol,
+                    "name": order.symbol,
+                    "exchange": order.exchange,
+                    "quantity": order.executed_quantity,
+                    "average_buy_price": str(fill_price),
+                    "current_price": str(fill_price),
+                    "asset_class": "EQUITY",
+                    "status": "ACTIVE",
+                },
+            )
+        else:  # SELL
+            # Find the holding and reduce qty
+            resp = await _with_client(
+                "GET",
+                f"{portfolio_url}/api/v1/holdings",
+                headers=headers,
+                params={"client_id": str(order.client_id)},
+            )
+            if not resp:
+                return
+            holdings = resp if isinstance(resp, list) else []
+            match = next((h for h in holdings if h.get("symbol") == order.symbol), None)
+            if not match:
+                return
+            new_qty = float(match["quantity"]) - order.executed_quantity
+            if new_qty <= 0:
+                await _with_client("DELETE", f"{portfolio_url}/api/v1/holdings/{match['id']}", headers=headers)
+            else:
+                await _with_client(
+                    "PATCH",
+                    f"{portfolio_url}/api/v1/holdings/{match['id']}",
+                    headers=headers,
+                    json={"quantity": new_qty},
+                )
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("Portfolio holding update failed: %s", e)
+
+
+async def _with_client(method: str, url: str, headers: dict, json: dict | None = None, params: dict | None = None):
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            r = await client.request(method, url, headers=headers, json=json, params=params)
+            if r.status_code < 300:
+                return r.json() if r.content else None
+    except Exception:
+        pass
+    return None
 
 
 async def execute_order(order: Order, token: str) -> dict:

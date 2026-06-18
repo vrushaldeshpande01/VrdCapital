@@ -1,4 +1,4 @@
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Box, Card, CardContent, Typography, Grid, Chip, Button,
   Avatar, Divider, Tab, Tabs, Table, TableBody, TableHead, TableRow,
@@ -8,7 +8,7 @@ import {
 } from '@mui/material';
 import {
   ArrowBack, Edit, CheckCircle, Cancel, Add, Sync,
-  Delete, Link as LinkIcon, LinkOff, History,
+  Delete, Link as LinkIcon, LinkOff, History, OpenInNew, Warning,
 } from '@mui/icons-material';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSnackbar } from 'notistack';
@@ -16,7 +16,8 @@ import { clientsService } from '@/api/clients';
 import { brokerService, BrokerCredential } from '@/api/broker';
 import { portfolioService } from '@/api/portfolio';
 import { ordersService } from '@/api/orders';
-import { useState } from 'react';
+import { tradingService, TradingHolding } from '@/api/trading';
+import { useState, useEffect } from 'react';
 import type { Holding } from '@/types';
 
 const BROKER_COLORS: Record<string, string> = {
@@ -135,6 +136,10 @@ function BrokerCard({ cred, clientId }: { cred: BrokerCredential; clientId: stri
   const qc = useQueryClient();
   const [testing, setTesting] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [connecting, setConnecting] = useState(false);
+
+  const tokenExpired = cred.token_expiry ? new Date(cred.token_expiry) < new Date() : false;
+  const needsAuth = !cred.is_sandbox && cred.broker === 'zerodha' && (!cred.has_access_token || tokenExpired);
 
   const handleTest = async () => {
     setTesting(true);
@@ -161,6 +166,21 @@ function BrokerCard({ cred, clientId }: { cred: BrokerCredential; clientId: stri
     setSyncing(false);
   };
 
+  const handleZerodhaConnect = async () => {
+    setConnecting(true);
+    try {
+      const res = await brokerService.getZerodhaLoginUrl(cred.id, clientId);
+      const { login_url } = (res as any).data;
+      window.open(login_url, '_blank', 'width=800,height=600');
+      enqueueSnackbar('Kite login opened — complete login and return here', { variant: 'info' });
+      // Poll for token after user completes login
+      setTimeout(() => qc.invalidateQueries({ queryKey: ['broker-credentials', clientId] }), 5000);
+    } catch (e: any) {
+      enqueueSnackbar(e?.response?.data?.detail || 'Failed to get login URL', { variant: 'error' });
+    }
+    setConnecting(false);
+  };
+
   const { mutate: deleteCred } = useMutation({
     mutationFn: () => brokerService.deleteCredential(cred.id),
     onSuccess: () => {
@@ -174,7 +194,7 @@ function BrokerCard({ cred, clientId }: { cred: BrokerCredential; clientId: stri
     : 'Never';
 
   return (
-    <Card variant="outlined" sx={{ mb: 1.5, borderColor: cred.is_active ? 'divider' : 'error.light' }}>
+    <Card variant="outlined" sx={{ mb: 1.5, borderColor: needsAuth ? 'warning.main' : cred.is_active ? 'divider' : 'error.light' }}>
       <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
         <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5 }}>
           <BrokerIcon broker={cred.broker} size={40} />
@@ -187,6 +207,12 @@ function BrokerCard({ cred, clientId }: { cred: BrokerCredential; clientId: stri
                 color={cred.is_sandbox ? 'warning' : 'success'}
                 sx={{ height: 18, fontSize: 10 }}
               />
+              {cred.has_access_token && !tokenExpired && !cred.is_sandbox && (
+                <Chip label="Connected" size="small" color="success" variant="outlined" sx={{ height: 18, fontSize: 10 }} />
+              )}
+              {tokenExpired && !cred.is_sandbox && (
+                <Chip icon={<Warning sx={{ fontSize: '12px !important' }} />} label="Token Expired" size="small" color="warning" sx={{ height: 18, fontSize: 10 }} />
+              )}
               {cred.last_sync_status && (
                 <Chip
                   label={cred.last_sync_status}
@@ -201,6 +227,31 @@ function BrokerCard({ cred, clientId }: { cred: BrokerCredential; clientId: stri
               ID: {cred.account_id} · Last sync: {lastSync} · {cred.total_syncs} syncs
             </Typography>
             {syncing && <LinearProgress sx={{ mt: 0.5, borderRadius: 1 }} />}
+
+            {/* Connect / Re-auth banner for live Zerodha without valid token */}
+            {needsAuth && (
+              <Alert
+                severity="warning"
+                sx={{ mt: 1, py: 0.5, fontSize: 12 }}
+                action={
+                  <Button
+                    size="small"
+                    variant="contained"
+                    color="warning"
+                    startIcon={connecting ? <CircularProgress size={12} color="inherit" /> : <OpenInNew fontSize="small" />}
+                    onClick={handleZerodhaConnect}
+                    disabled={connecting}
+                    sx={{ whiteSpace: 'nowrap', fontSize: 11 }}
+                  >
+                    {tokenExpired ? 'Re-connect Zerodha' : 'Connect Zerodha'}
+                  </Button>
+                }
+              >
+                {tokenExpired
+                  ? 'Session expired — Kite tokens refresh daily. Re-connect to resume live data.'
+                  : 'Login with Zerodha to enable live data and order placement.'}
+              </Alert>
+            )}
           </Box>
           <Box sx={{ display: 'flex', gap: 0.5, flexShrink: 0 }}>
             <Tooltip title="Test Connection">
@@ -208,9 +259,9 @@ function BrokerCard({ cred, clientId }: { cred: BrokerCredential; clientId: stri
                 {testing ? <CircularProgress size={16} /> : <LinkIcon fontSize="small" />}
               </IconButton>
             </Tooltip>
-            <Tooltip title={cred.is_sandbox ? 'Sandbox mode — live credentials required to import real holdings' : 'Sync Holdings from broker'}>
+            <Tooltip title={cred.is_sandbox ? 'Sandbox mode — live credentials required to import real holdings' : needsAuth ? 'Connect Zerodha first' : 'Sync Holdings from broker'}>
               <span>
-                <IconButton size="small" onClick={handleSync} disabled={syncing || cred.is_sandbox} color="primary">
+                <IconButton size="small" onClick={handleSync} disabled={syncing || cred.is_sandbox || needsAuth} color="primary">
                   {syncing ? <CircularProgress size={16} /> : <Sync fontSize="small" />}
                 </IconButton>
               </span>
@@ -337,11 +388,21 @@ function EditClientDetailDialog({
 export default function ClientDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { enqueueSnackbar } = useSnackbar();
   const qc = useQueryClient();
   const [tab, setTab] = useState(0);
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+
+  useEffect(() => {
+    if (searchParams.get('zerodha') === 'connected') {
+      enqueueSnackbar('Zerodha connected successfully! You can now sync holdings.', { variant: 'success' });
+      qc.invalidateQueries({ queryKey: ['broker-credentials', id] });
+      setSearchParams({}, { replace: true });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   const { mutate: toggleKyc, isPending: kycPending } = useMutation({
     mutationFn: (verified: boolean) => clientsService.update(id!, { kyc_verified: verified } as any),
@@ -541,16 +602,37 @@ export default function ClientDetailPage() {
 }
 
 function ClientHoldingsTab({ clientId }: { clientId: string }) {
-  const { data: holdings = [], isLoading } = useQuery({
+  const { data: brokerHoldings = [], isLoading } = useQuery({
     queryKey: ['holdings', clientId],
     queryFn: () => portfolioService.getHoldings(clientId),
     refetchInterval: 30_000,
   });
 
+  const { data: tradingHoldingsRaw = [] } = useQuery({
+    queryKey: ['trading-holdings', clientId],
+    queryFn: () => tradingService.getHoldings(clientId).then(r => r.data),
+    refetchInterval: 30_000,
+  });
+
+  const useTradingFallback = brokerHoldings.length === 0 && tradingHoldingsRaw.length > 0;
+
+  const tradingHoldings: Holding[] = tradingHoldingsRaw.map((h: TradingHolding) => ({
+    id: h.symbol, client_id: clientId, broker_account_id: '',
+    symbol: h.symbol, name: h.symbol, exchange: h.exchange,
+    quantity: h.quantity, average_buy_price: h.avg_buy_price,
+    current_price: h.ltp, invested_value: h.invested_value,
+    current_value: h.current_value, unrealized_pnl: h.pnl,
+    unrealized_pnl_pct: h.pnl_pct, day_pnl: null, day_pnl_pct: null,
+    sector: null, asset_class: 'EQUITY', status: 'ACTIVE',
+    created_at: '', updated_at: '',
+  } as unknown as Holding));
+
+  const holdings = useTradingFallback ? tradingHoldings : brokerHoldings;
+
   if (isLoading) return <LinearProgress />;
   if (holdings.length === 0) return (
     <Alert severity="info" sx={{ mb: 1 }}>
-      No holdings yet. To populate this portfolio, link a broker account with <strong>live credentials</strong> (disable sandbox mode) and trigger a Sync. Holdings are imported directly from the broker's API.
+      No holdings yet. Place CNC orders from the <strong>Trading Terminal</strong>, or link a live broker account and trigger a Sync.
     </Alert>
   );
 
@@ -567,6 +649,11 @@ function ClientHoldingsTab({ clientId }: { clientId: string }) {
 
   return (
     <Box>
+      {useTradingFallback && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          Showing CNC trade-based holdings from the Trading Terminal. Broker-synced holdings appear here once a live broker is linked and synced.
+        </Alert>
+      )}
       {/* Summary strip */}
       <Box sx={{ display: 'flex', gap: 3, mb: 2, p: 1.5, bgcolor: '#f5f5f5', borderRadius: 2, flexWrap: 'wrap' }}>
         <Box><Typography variant="caption" color="text.secondary">Holdings</Typography><Typography fontWeight={700}>{holdings.length}</Typography></Box>

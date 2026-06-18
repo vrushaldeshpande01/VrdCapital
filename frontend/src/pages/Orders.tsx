@@ -5,9 +5,10 @@ import {
   Dialog, DialogTitle, DialogContent, DialogActions, Alert,
   IconButton, Tooltip, CircularProgress,
 } from '@mui/material';
-import { Add, Search, Cancel, Refresh, CallMade } from '@mui/icons-material';
+import { Search, Cancel, Refresh, CallMade, OpenInNew } from '@mui/icons-material';
 import { DataGrid, GridColDef } from '@mui/x-data-grid';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { useSnackbar } from 'notistack';
 import { ordersService, PlaceOrderPayload, Order, OrderSide, PriceType } from '@/api/orders';
 import { clientsService } from '@/api/clients';
@@ -19,118 +20,6 @@ const STATUS_COLOR: Record<string, 'success' | 'warning' | 'error' | 'default' |
 };
 
 const today = new Date().toISOString().slice(0, 10);
-
-function PlaceOrderDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { enqueueSnackbar } = useSnackbar();
-  const qc = useQueryClient();
-  const [form, setForm] = useState({
-    client_id: '', broker: 'zerodha', symbol: '', exchange: 'NSE',
-    side: 'BUY' as OrderSide, price_type: 'MARKET' as PriceType,
-    quantity: '1', price: '',
-  });
-
-  const { data: clientList } = useQuery({
-    queryKey: ['clients', 1, ''],
-    queryFn: () => clientsService.list({ page: 1, size: 100 }),
-  });
-  const clients = clientList?.items || [];
-
-  const { mutate, isPending } = useMutation({
-    mutationFn: () => {
-      const payload: PlaceOrderPayload = {
-        client_id: form.client_id,
-        broker: form.broker,
-        symbol: form.symbol.toUpperCase(),
-        exchange: form.exchange,
-        side: form.side,
-        price_type: form.price_type,
-        quantity: Number(form.quantity),
-        price: form.price_type === 'LIMIT' && form.price ? form.price : undefined,
-      };
-      return ordersService.place(payload);
-    },
-    onSuccess: (res) => {
-      qc.invalidateQueries({ queryKey: ['orders'] });
-      qc.invalidateQueries({ queryKey: ['order-stats'] });
-      enqueueSnackbar(`Order placed — ${res.data.status}`, { variant: 'success' });
-      onClose();
-    },
-    onError: (e: any) => enqueueSnackbar(e?.response?.data?.detail || 'Failed to place order', { variant: 'error' }),
-  });
-
-  const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement>) =>
-    setForm(p => ({ ...p, [k]: e.target.value }));
-
-  return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
-      <form onSubmit={(e) => { e.preventDefault(); mutate(); }}>
-        <DialogTitle sx={{ fontWeight: 700 }}>Place Order</DialogTitle>
-        <DialogContent sx={{ pt: 2 }}>
-          <Grid container spacing={2}>
-            <Grid item xs={12}>
-              <TextField select fullWidth size="small" label="Client *" required value={form.client_id} onChange={set('client_id')} sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}>
-                {clients.map(c => <MenuItem key={c.id} value={c.id}>{c.full_name} — {c.email}</MenuItem>)}
-              </TextField>
-            </Grid>
-            <Grid item xs={8}>
-              <TextField fullWidth size="small" label="Symbol *" required placeholder="e.g. RELIANCE"
-                value={form.symbol} onChange={set('symbol')}
-                sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
-            </Grid>
-            <Grid item xs={4}>
-              <TextField select fullWidth size="small" label="Exchange" value={form.exchange} onChange={set('exchange')} sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}>
-                <MenuItem value="NSE">NSE</MenuItem>
-                <MenuItem value="BSE">BSE</MenuItem>
-              </TextField>
-            </Grid>
-            <Grid item xs={4}>
-              <TextField select fullWidth size="small" label="Side" value={form.side}
-                onChange={e => setForm(p => ({ ...p, side: e.target.value as OrderSide }))}
-                sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}>
-                <MenuItem value="BUY">BUY</MenuItem>
-                <MenuItem value="SELL">SELL</MenuItem>
-              </TextField>
-            </Grid>
-            <Grid item xs={4}>
-              <TextField select fullWidth size="small" label="Broker" value={form.broker} onChange={set('broker')} sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}>
-                <MenuItem value="zerodha">Zerodha</MenuItem>
-                <MenuItem value="upstox">Upstox</MenuItem>
-                <MenuItem value="angelone">AngelOne</MenuItem>
-              </TextField>
-            </Grid>
-            <Grid item xs={4}>
-              <TextField select fullWidth size="small" label="Price Type" value={form.price_type}
-                onChange={e => setForm(p => ({ ...p, price_type: e.target.value as PriceType, price: '' }))}
-                sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}>
-                <MenuItem value="MARKET">MARKET</MenuItem>
-                <MenuItem value="LIMIT">LIMIT</MenuItem>
-                <MenuItem value="SL">Stop Loss</MenuItem>
-              </TextField>
-            </Grid>
-            <Grid item xs={form.price_type !== 'MARKET' ? 6 : 12}>
-              <TextField fullWidth size="small" type="number" label="Quantity *" required
-                value={form.quantity} onChange={set('quantity')}
-                sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
-            </Grid>
-            {form.price_type !== 'MARKET' && (
-              <Grid item xs={6}>
-                <TextField fullWidth size="small" type="number" label="Limit Price (₹) *" required
-                  value={form.price} onChange={set('price')}
-                  sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
-              </Grid>
-            )}
-          </Grid>
-        </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2.5 }}>
-          <Button onClick={onClose} sx={{ borderRadius: 2 }}>Cancel</Button>
-          <Button type="submit" variant="contained" disabled={isPending} sx={{ borderRadius: 2, px: 3 }}>
-            {isPending ? <CircularProgress size={18} color="inherit" /> : 'Place Order'}
-          </Button>
-        </DialogActions>
-      </form>
-    </Dialog>
-  );
-}
 
 const columns = (
   onCancel: (id: string) => void,
@@ -209,12 +98,13 @@ const columns = (
 export default function OrdersPage() {
   const { enqueueSnackbar } = useSnackbar();
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const [tab, setTab] = useState(0);
   const [search, setSearch] = useState('');
   const [sideFilter, setSideFilter] = useState('all');
   const [brokerFilter, setBrokerFilter] = useState('all');
-  const [placeOpen, setPlaceOpen] = useState(false);
   const [exitOrder, setExitOrder] = useState<Order | null>(null);
+  const [cancelOrderId, setCancelOrderId] = useState<string | null>(null);
   const [page, setPage] = useState(0);
 
   const statusParam = tab === 2 ? 'PENDING,OPEN,SUBMITTED' : undefined;
@@ -270,15 +160,15 @@ export default function OrdersPage() {
     <Box>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Box>
-          <Typography variant="h5" fontWeight={700}>Orders</Typography>
-          <Typography variant="body2" color="text.secondary">Live order management across all brokers</Typography>
+          <Typography variant="h5" fontWeight={700}>Order Management</Typography>
+          <Typography variant="body2" color="text.secondary">Monitor all orders across clients and brokers</Typography>
         </Box>
         <Box sx={{ display: 'flex', gap: 1 }}>
           <Tooltip title="Refresh">
             <IconButton onClick={() => refetch()}><Refresh /></IconButton>
           </Tooltip>
-          <Button variant="contained" startIcon={<Add />} onClick={() => setPlaceOpen(true)} sx={{ borderRadius: 2 }}>
-            Place Order
+          <Button variant="outlined" startIcon={<OpenInNew />} onClick={() => navigate('/trading')} sx={{ borderRadius: 2 }}>
+            Trading Terminal
           </Button>
         </Box>
       </Box>
@@ -336,7 +226,7 @@ export default function OrdersPage() {
 
           <DataGrid
             rows={orders}
-            columns={columns((id) => cancelOrder(id), (order) => setExitOrder(order), clientMap)}
+            columns={columns((id) => setCancelOrderId(id), (order) => setExitOrder(order), clientMap)}
             loading={isLoading}
             rowCount={data?.total || 0}
             paginationMode="server"
@@ -350,13 +240,40 @@ export default function OrdersPage() {
         </CardContent>
       </Card>
 
-      <PlaceOrderDialog open={placeOpen} onClose={() => setPlaceOpen(false)} />
       {exitOrder && (
         <ExitOrderDialog
           order={exitOrder}
           onClose={() => setExitOrder(null)}
         />
       )}
+
+      {/* Cancel confirmation dialog */}
+      <Dialog open={!!cancelOrderId} onClose={() => setCancelOrderId(null)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700 }}>Cancel Order?</DialogTitle>
+        <DialogContent>
+          <Alert severity="warning">
+            This will send a cancel request to the broker. This action cannot be undone for orders already sent to the exchange.
+          </Alert>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2, gap: 1 }}>
+          <Button onClick={() => setCancelOrderId(null)} sx={{ borderRadius: 2 }}>
+            Go Back
+          </Button>
+          <Button
+            variant="contained"
+            color="error"
+            sx={{ borderRadius: 2 }}
+            onClick={() => {
+              if (cancelOrderId) {
+                cancelOrder(cancelOrderId);
+                setCancelOrderId(null);
+              }
+            }}
+          >
+            Yes, Cancel Order
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

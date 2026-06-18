@@ -78,19 +78,19 @@ def daily_return(today_value, yesterday_value) -> Optional[Decimal]:
 
 def aggregate_holdings_value(holdings: list) -> Decimal:
     """Sum of current_value across all holdings."""
-    return round2(sum(to_dec(h.current_value or 0) for h in holdings))
+    return round2(sum((to_dec(h.current_value or 0) for h in holdings), Decimal("0")))
 
 
 def aggregate_invested_value(holdings: list) -> Decimal:
-    return round2(sum(to_dec(h.invested_value or 0) for h in holdings))
+    return round2(sum((to_dec(h.invested_value or 0) for h in holdings), Decimal("0")))
 
 
 def aggregate_unrealized_pnl(holdings: list) -> Decimal:
-    return round2(sum(to_dec(h.unrealized_pnl or 0) for h in holdings))
+    return round2(sum((to_dec(h.unrealized_pnl or 0) for h in holdings), Decimal("0")))
 
 
 def aggregate_day_pnl(holdings: list) -> Decimal:
-    return round2(sum(to_dec(h.day_pnl or 0) for h in holdings))
+    return round2(sum((to_dec(h.day_pnl or 0) for h in holdings), Decimal("0")))
 
 
 def sector_allocation(holdings: list) -> List[dict]:

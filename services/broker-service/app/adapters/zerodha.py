@@ -10,6 +10,7 @@ To switch to live:
   2. Store api_key and access_token (obtained via KiteConnect login URL flow)
   3. The adapter will call https://api.kite.trade/ with real data
 """
+from decimal import Decimal
 from typing import Optional
 import httpx
 
@@ -54,32 +55,96 @@ class ZerodhaAdapter(BrokerAdapter):
 
     async def get_holdings(self) -> list[HoldingData]:
         if self.is_sandbox:
-            return []  # Sandbox mode: no real broker connection, portfolio must be built from real trades
+            return []
         async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(f"{KITE_BASE}/portfolio/holdings", headers=self._headers())
-        resp.raise_for_status()
-        holdings = []
-        for h in resp.json().get("data", []):
-            holdings.append(HoldingData(
+            h_resp = await client.get(f"{KITE_BASE}/portfolio/holdings", headers=self._headers())
+            p_resp = await client.get(f"{KITE_BASE}/portfolio/positions", headers=self._headers())
+        h_resp.raise_for_status()
+        p_resp.raise_for_status()
+
+        holdings: dict[str, HoldingData] = {}
+
+        # Settled holdings (T+1 and beyond)
+        for h in h_resp.json().get("data", []):
+            qty = float(h["quantity"]) + float(h.get("t1_quantity", 0))
+            if qty <= 0:
+                continue
+            holdings[h["tradingsymbol"]] = HoldingData(
                 symbol=h["tradingsymbol"],
                 name=h["tradingsymbol"],
                 exchange=h.get("exchange", "NSE"),
                 sector="",
-                quantity=float(h["quantity"]),
+                quantity=qty,
                 average_buy_price=float(h["average_price"]),
                 current_price=float(h["last_price"]),
                 previous_close=float(h.get("close_price", h["last_price"])),
                 isin=h.get("isin"),
-            ))
-        return holdings
+            )
+
+        # Today's CNC buys (not yet settled — live in positions until T+1)
+        for p in p_resp.json().get("data", {}).get("net", []):
+            if p.get("product") != "CNC":
+                continue
+            qty = float(p.get("quantity", 0))
+            if qty <= 0:
+                continue
+            sym = p["tradingsymbol"]
+            if sym not in holdings:
+                # New today — add as pending holding
+                buy_price = float(p.get("buy_price") or p.get("average_price") or 0)
+                ltp = float(p.get("last_price") or buy_price)
+                holdings[sym] = HoldingData(
+                    symbol=sym,
+                    name=sym,
+                    exchange=p.get("exchange", "NSE"),
+                    sector="",
+                    quantity=qty,
+                    average_buy_price=buy_price,
+                    current_price=ltp,
+                    previous_close=float(p.get("close_price") or ltp),
+                    isin=None,
+                )
+            else:
+                # Already have a settled holding — add today's quantity
+                existing = holdings[sym]
+                total_qty = existing.quantity + qty
+                holdings[sym] = HoldingData(
+                    symbol=sym,
+                    name=existing.name,
+                    exchange=existing.exchange,
+                    sector=existing.sector,
+                    quantity=total_qty,
+                    average_buy_price=existing.average_buy_price,
+                    current_price=existing.current_price,
+                    previous_close=existing.previous_close,
+                    isin=existing.isin,
+                )
+
+        return list(holdings.values())
 
     async def get_positions(self) -> list[PositionData]:
         if self.is_sandbox:
             return []
+        from datetime import date
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(f"{KITE_BASE}/portfolio/positions", headers=self._headers())
         resp.raise_for_status()
-        return []  # Parse positions similar to holdings if needed
+        positions = []
+        for p in resp.json().get("data", {}).get("net", []):
+            qty = float(p.get("quantity", 0))
+            if qty == 0:
+                continue
+            positions.append(PositionData(
+                symbol=p["tradingsymbol"],
+                exchange=p.get("exchange", "NSE"),
+                quantity=qty,
+                buy_price=float(p.get("buy_price", 0)),
+                sell_price=float(p.get("sell_price", 0)) or None,
+                trade_date=date.today(),
+                is_open=qty != 0,
+                product=p.get("product", "CNC"),
+            ))
+        return positions
 
     async def get_funds(self) -> FundsData:
         if self.is_sandbox:
@@ -120,3 +185,58 @@ class ZerodhaAdapter(BrokerAdapter):
                 volume=int(q.get("volume_traded", 0)),
             )
         return result
+
+    async def place_order(
+        self,
+        symbol: str,
+        exchange: str,
+        side: str,
+        price_type: str,
+        quantity: int,
+        price: Optional[Decimal] = None,
+        trigger_price: Optional[Decimal] = None,
+    ) -> dict:
+        if self.is_sandbox:
+            return await super().place_order(symbol, exchange, side, price_type, quantity, price, trigger_price)
+
+        # Map internal price_type to Kite order_type
+        ORDER_TYPE_MAP = {
+            "MARKET": "MARKET",
+            "LIMIT": "LIMIT",
+            "SL": "SL",
+            "SL_M": "SL-M",
+        }
+        payload = {
+            "tradingsymbol": symbol,
+            "exchange": exchange,
+            "transaction_type": side.upper(),  # BUY / SELL
+            "order_type": ORDER_TYPE_MAP.get(price_type, "MARKET"),
+            "quantity": quantity,
+            "product": "CNC",
+            "validity": "DAY",
+        }
+        if price and price_type in ("LIMIT", "SL"):
+            payload["price"] = str(price)
+        if trigger_price and price_type in ("SL", "SL_M"):
+            payload["trigger_price"] = str(trigger_price)
+
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                f"{KITE_BASE}/orders/regular",
+                data=payload,
+                headers=self._headers(),
+            )
+
+        if resp.status_code not in (200, 201):
+            raise Exception(f"Kite order failed {resp.status_code}: {resp.text}")
+
+        data = resp.json().get("data", {})
+        order_id = data.get("order_id", "")
+
+        return {
+            "status": "OPEN",
+            "broker_order_id": order_id,
+            "executed_quantity": 0,
+            "average_price": None,
+            "executed_at": None,
+        }

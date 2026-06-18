@@ -49,6 +49,10 @@ class BrokerCredential(Base):
     is_sandbox = Column(Boolean, default=True, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
 
+    # OAuth handshake tracking — set when login URL is generated, cleared after token exchange
+    oauth_state = Column(String(20), nullable=True)   # 'pending' while waiting for callback
+    oauth_initiated_at = Column(DateTime(timezone=True), nullable=True)
+
     last_sync_at = Column(DateTime(timezone=True), nullable=True)
     last_sync_status = Column(String(20), nullable=True)
     total_syncs = Column(Integer, default=0)

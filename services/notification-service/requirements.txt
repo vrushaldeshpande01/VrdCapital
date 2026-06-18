@@ -10,3 +10,4 @@ aio-pika==9.4.3
 structlog==24.4.0
 
 prometheus-client==0.21.0
+redis[hiredis]==5.0.4

@@ -9,8 +9,9 @@ import {
 import {
   Search, Add, Visibility,
   CheckCircle, Cancel, FilterList,
-  DeleteOutline,
+  DeleteOutline, UploadFile, Download, CheckCircleOutline, ErrorOutline,
 } from '@mui/icons-material';
+import { List, ListItem, ListItemIcon, ListItemText, LinearProgress } from '@mui/material';
 import { DataGrid, GridColDef } from '@mui/x-data-grid';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSnackbar } from 'notistack';
@@ -232,6 +233,109 @@ function DeleteClientDialog({
   );
 }
 
+function CsvImportDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const queryClient = useQueryClient();
+  const { enqueueSnackbar } = useSnackbar();
+  const [file, setFile] = useState<File | null>(null);
+  const [result, setResult] = useState<any | null>(null);
+
+  const { mutate, isPending } = useMutation({
+    mutationFn: () => clientsService.bulkImport(file!),
+    onSuccess: (data) => {
+      setResult(data);
+      queryClient.invalidateQueries({ queryKey: ['clients'] });
+      enqueueSnackbar(`Imported ${data.created} client${data.created !== 1 ? 's' : ''}`, { variant: 'success' });
+    },
+    onError: (e: any) => enqueueSnackbar(e?.response?.data?.detail ?? 'Import failed', { variant: 'error' }),
+  });
+
+  const handleClose = () => { setFile(null); setResult(null); onClose(); };
+
+  const downloadTemplate = () => {
+    const csv = 'full_name,email,phone,pan_number,risk_profile,annual_income,investment_goal,investment_horizon_years,city,state\nJohn Doe,john@example.com,9876543210,ABCDE1234F,moderate,1000000,Wealth creation,10,Mumbai,Maharashtra\n';
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    a.download = 'client_import_template.csv';
+    a.click();
+  };
+
+  return (
+    <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
+      <DialogTitle sx={{ fontWeight: 700 }}>Import Clients from CSV</DialogTitle>
+      <DialogContent>
+        {!result ? (
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
+            <Alert severity="info" action={
+              <Button size="small" startIcon={<Download />} onClick={downloadTemplate}>Template</Button>
+            }>
+              Download the template to see required columns (full_name, email are mandatory).
+            </Alert>
+            <Box
+              component="label"
+              htmlFor="csv-upload"
+              sx={{
+                border: '2px dashed', borderColor: file ? 'success.main' : 'divider',
+                borderRadius: 2, p: 4, textAlign: 'center', cursor: 'pointer',
+                bgcolor: file ? 'success.50' : 'background.default',
+                '&:hover': { borderColor: 'primary.main', bgcolor: 'primary.50' },
+                transition: 'all 0.15s',
+              }}
+            >
+              <input id="csv-upload" type="file" accept=".csv" hidden onChange={e => setFile(e.target.files?.[0] ?? null)} />
+              <UploadFile sx={{ fontSize: 36, color: file ? 'success.main' : 'text.secondary', mb: 1 }} />
+              <Typography variant="body2" fontWeight={600}>
+                {file ? file.name : 'Click to select CSV file'}
+              </Typography>
+              {file && <Typography variant="caption" color="text.secondary">{(file.size / 1024).toFixed(1)} KB</Typography>}
+            </Box>
+            {isPending && <LinearProgress />}
+          </Box>
+        ) : (
+          <Box sx={{ pt: 1 }}>
+            <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
+              {[['Created', result.created, 'success.main'], ['Skipped', result.skipped, 'warning.main'], ['Errors', result.errors, 'error.main']].map(([l, v, c]) => (
+                <Box key={l as string} sx={{ textAlign: 'center', flex: 1, p: 1.5, borderRadius: 2, bgcolor: 'background.default' }}>
+                  <Typography variant="h5" fontWeight={700} color={c as string}>{v as number}</Typography>
+                  <Typography variant="caption" color="text.secondary">{l as string}</Typography>
+                </Box>
+              ))}
+            </Box>
+            {result.rows_errored.length > 0 && (
+              <Alert severity="error" sx={{ mb: 1 }}>
+                <Typography variant="caption" fontWeight={600}>Errors:</Typography>
+                {result.rows_errored.slice(0, 5).map((r: any) => (
+                  <Typography key={r.row} variant="caption" display="block">Row {r.row}: {r.reason}</Typography>
+                ))}
+              </Alert>
+            )}
+            {result.rows_skipped.length > 0 && (
+              <Alert severity="warning">
+                <Typography variant="caption" fontWeight={600}>Skipped (duplicates):</Typography>
+                {result.rows_skipped.slice(0, 5).map((r: any) => (
+                  <Typography key={r.row} variant="caption" display="block">Row {r.row}: {r.email} — {r.reason}</Typography>
+                ))}
+              </Alert>
+            )}
+          </Box>
+        )}
+      </DialogContent>
+      <DialogActions sx={{ px: 3, pb: 2.5 }}>
+        <Button onClick={handleClose} sx={{ borderRadius: 2 }}>{result ? 'Close' : 'Cancel'}</Button>
+        {!result && (
+          <Button
+            variant="contained" onClick={() => mutate()}
+            disabled={!file || isPending}
+            startIcon={isPending ? <CircularProgress size={16} color="inherit" /> : <UploadFile />}
+            sx={{ borderRadius: 2 }}
+          >
+            {isPending ? 'Importing…' : 'Import'}
+          </Button>
+        )}
+      </DialogActions>
+    </Dialog>
+  );
+}
+
 export default function ClientsPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -240,6 +344,7 @@ export default function ClientsPage() {
   const [page, setPage] = useState(0);
   const [pageSize] = useState(20);
   const [createOpen, setCreateOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [deleteClient, setDeleteClient] = useState<Client | null>(null);
 
   const { data, isLoading } = useQuery({
@@ -327,9 +432,10 @@ export default function ClientsPage() {
       headerName: 'Actions',
       width: 110,
       sortable: false,
+      align: 'center',
       headerAlign: 'center',
       renderCell: ({ row }) => (
-        <Box sx={{ display: 'flex', justifyContent: 'center', gap: 0.5, width: '100%' }}>
+        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 0.5, width: '100%', height: '100%' }}>
           <Tooltip title="View">
             <IconButton size="small" onClick={() => navigate(`/clients/${row.id}`)}>
               <Visibility fontSize="small" />
@@ -354,14 +460,24 @@ export default function ClientsPage() {
             Manage your client portfolio
           </Typography>
         </Box>
-        <Button
-          variant="contained"
-          startIcon={<Add />}
-          onClick={() => setCreateOpen(true)}
-          sx={{ borderRadius: 2, px: 2.5 }}
-        >
-          Add Client
-        </Button>
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <Button
+            variant="outlined"
+            startIcon={<UploadFile />}
+            onClick={() => setImportOpen(true)}
+            sx={{ borderRadius: 2 }}
+          >
+            Import CSV
+          </Button>
+          <Button
+            variant="contained"
+            startIcon={<Add />}
+            onClick={() => setCreateOpen(true)}
+            sx={{ borderRadius: 2, px: 2.5 }}
+          >
+            Add Client
+          </Button>
+        </Box>
       </Box>
 
       <Card>
@@ -405,6 +521,7 @@ export default function ClientsPage() {
       </Card>
 
       <CreateClientDialog open={createOpen} onClose={() => setCreateOpen(false)} />
+      <CsvImportDialog open={importOpen} onClose={() => setImportOpen(false)} />
       <DeleteClientDialog client={deleteClient} onClose={() => setDeleteClient(null)} />
     </Box>
   );

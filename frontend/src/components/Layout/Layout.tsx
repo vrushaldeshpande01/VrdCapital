@@ -3,6 +3,7 @@ import { Outlet } from 'react-router-dom';
 import { Box } from '@mui/material';
 import Sidebar from './Sidebar';
 import Header from './Header';
+import LivePriceTicker from '@/components/LivePriceTicker';
 
 const DRAWER_WIDTH = 260;
 
@@ -27,7 +28,10 @@ export default function Layout() {
         }}
       >
         <Header drawerWidth={DRAWER_WIDTH} onMenuClick={() => setMobileOpen(true)} />
-        <Box sx={{ flexGrow: 1, p: 3, mt: 8 }}>
+        <Box sx={{ mt: 8 }}>
+          <LivePriceTicker />
+        </Box>
+        <Box sx={{ flexGrow: 1, p: 3 }}>
           <Outlet />
         </Box>
       </Box>

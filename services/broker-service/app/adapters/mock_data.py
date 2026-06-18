@@ -7,21 +7,21 @@ from datetime import date
 from app.adapters.base import HoldingData, QuoteData
 
 NSE_STOCKS = [
-    {"symbol": "RELIANCE", "name": "Reliance Industries Ltd",     "sector": "Energy",      "base": 2485.60, "prev": 2460.00, "isin": "INE002A01018"},
-    {"symbol": "TCS",       "name": "Tata Consultancy Services",  "sector": "Technology",  "base": 3892.40, "prev": 3850.00, "isin": "INE467B01029"},
-    {"symbol": "HDFCBANK",  "name": "HDFC Bank Ltd",              "sector": "Finance",     "base": 1672.80, "prev": 1650.00, "isin": "INE040A01034"},
-    {"symbol": "INFY",      "name": "Infosys Ltd",                "sector": "Technology",  "base": 1458.20, "prev": 1440.00, "isin": "INE009A01021"},
-    {"symbol": "WIPRO",     "name": "Wipro Ltd",                  "sector": "Technology",  "base": 485.60,  "prev": 480.00,  "isin": "INE075A01022"},
-    {"symbol": "ICICIBANK", "name": "ICICI Bank Ltd",             "sector": "Finance",     "base": 1045.30, "prev": 1030.00, "isin": "INE090A01021"},
-    {"symbol": "HINDUNILVR","name": "Hindustan Unilever Ltd",     "sector": "FMCG",        "base": 2620.50, "prev": 2590.00, "isin": "INE030A01027"},
-    {"symbol": "SUNPHARMA", "name": "Sun Pharmaceutical",         "sector": "Healthcare",  "base": 1285.70, "prev": 1260.00, "isin": "INE044A01036"},
-    {"symbol": "BAJFINANCE","name": "Bajaj Finance Ltd",          "sector": "Finance",     "base": 6890.40, "prev": 6750.00, "isin": "INE296A01024"},
-    {"symbol": "KOTAKBANK", "name": "Kotak Mahindra Bank",        "sector": "Finance",     "base": 1842.60, "prev": 1820.00, "isin": "INE237A01028"},
-    {"symbol": "LTIM",      "name": "LTIMindtree Ltd",            "sector": "Technology",  "base": 5120.00, "prev": 5080.00, "isin": "INE214T01019"},
-    {"symbol": "AXISBANK",  "name": "Axis Bank Ltd",              "sector": "Finance",     "base": 1125.40, "prev": 1110.00, "isin": "INE238A01034"},
-    {"symbol": "MARUTI",    "name": "Maruti Suzuki India",        "sector": "Auto",        "base": 12450.00,"prev": 12200.00,"isin": "INE585B01010"},
-    {"symbol": "TITAN",     "name": "Titan Company Ltd",          "sector": "Consumer",    "base": 3280.00, "prev": 3240.00, "isin": "INE280A01028"},
-    {"symbol": "NESTLEIND", "name": "Nestle India Ltd",           "sector": "FMCG",        "base": 2480.00, "prev": 2450.00, "isin": "INE239A01016"},
+    {"symbol": "RELIANCE", "name": "Reliance Industries Ltd",     "sector": "Energy",      "base": 1320.00, "prev": 1305.00, "isin": "INE002A01018"},
+    {"symbol": "TCS",       "name": "Tata Consultancy Services",  "sector": "Technology",  "base": 3450.00, "prev": 3420.00, "isin": "INE467B01029"},
+    {"symbol": "HDFCBANK",  "name": "HDFC Bank Ltd",              "sector": "Finance",     "base": 1780.00, "prev": 1760.00, "isin": "INE040A01034"},
+    {"symbol": "INFY",      "name": "Infosys Ltd",                "sector": "Technology",  "base": 1560.00, "prev": 1540.00, "isin": "INE009A01021"},
+    {"symbol": "WIPRO",     "name": "Wipro Ltd",                  "sector": "Technology",  "base": 181.00,  "prev": 179.50,  "isin": "INE075A01022"},
+    {"symbol": "ICICIBANK", "name": "ICICI Bank Ltd",             "sector": "Finance",     "base": 1380.00, "prev": 1365.00, "isin": "INE090A01021"},
+    {"symbol": "HINDUNILVR","name": "Hindustan Unilever Ltd",     "sector": "FMCG",        "base": 2380.00, "prev": 2355.00, "isin": "INE030A01027"},
+    {"symbol": "SUNPHARMA", "name": "Sun Pharmaceutical",         "sector": "Healthcare",  "base": 1720.00, "prev": 1700.00, "isin": "INE044A01036"},
+    {"symbol": "BAJFINANCE","name": "Bajaj Finance Ltd",          "sector": "Finance",     "base": 9100.00, "prev": 9000.00, "isin": "INE296A01024"},
+    {"symbol": "KOTAKBANK", "name": "Kotak Mahindra Bank",        "sector": "Finance",     "base": 2120.00, "prev": 2095.00, "isin": "INE237A01028"},
+    {"symbol": "LTIM",      "name": "LTIMindtree Ltd",            "sector": "Technology",  "base": 4850.00, "prev": 4800.00, "isin": "INE214T01019"},
+    {"symbol": "AXISBANK",  "name": "Axis Bank Ltd",              "sector": "Finance",     "base": 1230.00, "prev": 1215.00, "isin": "INE238A01034"},
+    {"symbol": "MARUTI",    "name": "Maruti Suzuki India",        "sector": "Auto",        "base": 12800.00,"prev": 12650.00,"isin": "INE585B01010"},
+    {"symbol": "TITAN",     "name": "Titan Company Ltd",          "sector": "Consumer",    "base": 3550.00, "prev": 3510.00, "isin": "INE280A01028"},
+    {"symbol": "NESTLEIND", "name": "Nestle India Ltd",           "sector": "FMCG",        "base": 2290.00, "prev": 2265.00, "isin": "INE239A01016"},
 ]
 
 STOCK_MAP = {s["symbol"]: s for s in NSE_STOCKS}

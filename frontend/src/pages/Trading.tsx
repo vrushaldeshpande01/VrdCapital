@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import {
-  Box, Typography, Tabs, Tab, TextField, MenuItem, Button,
+  Box, Typography, Tabs, Tab, TextField, MenuItem, Button, Alert,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import { useQuery } from '@tanstack/react-query';
 import { clientsService } from '@/api/clients';
 import type { Client } from '@/types';
-import { useAppDispatch, useAppSelector } from '@/store';
+import { useAppDispatch } from '@/store';
 import { openOrderModal } from '@/store/tradingSlice';
 
 import InstrumentSearchBar from '@/modules/trading/InstrumentSearchBar';
@@ -16,30 +16,35 @@ import TradeBook from '@/modules/trading/TradeBook';
 import Positions from '@/modules/trading/Positions';
 import Holdings from '@/modules/trading/Holdings';
 import PlaceOrderModal from '@/modules/trading/PlaceOrderModal';
+import BasketOrdersPage from '@/pages/BasketOrders';
 
-const TABS = ['Orders', 'Trades', 'Positions', 'Holdings'];
+const TABS = ['Orders', 'Trades', 'Positions', 'Holdings', 'Basket'];
+
+const ALL_CLIENTS = '__all__';
 
 export default function TradingPage() {
   const dispatch = useAppDispatch();
   const [tab, setTab] = useState(0);
-  const [selectedClientId, setSelectedClientId] = useState('');
+  const [selectedClientId, setSelectedClientId] = useState(ALL_CLIENTS);
 
   const { data: clientsData } = useQuery({
     queryKey: ['clients-list'],
-    queryFn: () => clientsService.list({ page: 1, size: 200 }),
+    queryFn: () => clientsService.list({ page: 1, size: 100 }),
   });
   const clients = clientsData?.items ?? [];
 
-  const clientId = selectedClientId || clients[0]?.id || '';
+  // undefined = fetch all; a real ID = filter to that client
+  const clientId = selectedClientId === ALL_CLIENTS ? undefined : selectedClientId;
+  const needsClient = !clientId;
 
   return (
     <Box sx={{ p: 3 }}>
       {/* Header */}
       <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 2, flexWrap: 'wrap', gap: 2 }}>
         <Box>
-          <Typography variant="h5" fontWeight={700}>Trading</Typography>
+          <Typography variant="h5" fontWeight={700}>Trading Terminal</Typography>
           <Typography variant="body2" color="text.secondary">
-            Place and manage orders — Zerodha-style order management
+            Place orders, track positions and manage your basket — live
           </Typography>
         </Box>
 
@@ -49,10 +54,11 @@ export default function TradingPage() {
             select
             size="small"
             label="Client"
-            value={clientId}
+            value={selectedClientId}
             onChange={(e) => setSelectedClientId(e.target.value)}
             sx={{ minWidth: 220 }}
           >
+            <MenuItem value={ALL_CLIENTS}>All Clients</MenuItem>
             {clients.map((c: Client) => (
               <MenuItem key={c.id} value={c.id}>
                 {c.full_name}
@@ -60,12 +66,13 @@ export default function TradingPage() {
             ))}
           </TextField>
 
-          {/* Instrument search → opens PlaceOrderModal */}
-          <InstrumentSearchBar clientId={clientId} />
+          {/* Instrument search → opens PlaceOrderModal. Disabled in "all clients" mode */}
+          {clientId && <InstrumentSearchBar clientId={clientId} />}
 
           <Button
             variant="contained"
             startIcon={<AddIcon />}
+            disabled={!clientId}
             onClick={() => dispatch(openOrderModal({ clientId }))}
             sx={{ whiteSpace: 'nowrap' }}
           >
@@ -74,7 +81,7 @@ export default function TradingPage() {
         </Box>
       </Box>
 
-      {/* Funds widget */}
+      {/* Funds widget — only when a specific client is selected */}
       {clientId && (
         <Box sx={{ mb: 2 }}>
           <FundsWidget clientId={clientId} />
@@ -90,8 +97,17 @@ export default function TradingPage() {
 
       {tab === 0 && <OrderBook clientId={clientId} />}
       {tab === 1 && <TradeBook clientId={clientId} />}
-      {tab === 2 && clientId && <Positions clientId={clientId} />}
-      {tab === 3 && clientId && <Holdings clientId={clientId} />}
+      {tab === 2 && (
+        needsClient
+          ? <Alert severity="info">Select a client to view positions.</Alert>
+          : <Positions clientId={clientId!} />
+      )}
+      {tab === 3 && (
+        needsClient
+          ? <Alert severity="info">Select a client to view holdings.</Alert>
+          : <Holdings clientId={clientId!} />
+      )}
+      {tab === 4 && <BasketOrdersPage />}
 
       {/* Global order modal — mounts once, controlled by Redux */}
       <PlaceOrderModal />

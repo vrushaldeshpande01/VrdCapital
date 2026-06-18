@@ -94,4 +94,39 @@ export const brokerService = {
 
   getAllSymbols: () =>
     brokerApi.get<{ symbols: any[] }>('/market/nse/all'),
+
+  // Order placement via live broker
+  placeOrder: (body: {
+    credential_id: string;
+    symbol: string;
+    exchange: string;
+    side: string;
+    price_type: string;
+    quantity: number;
+    price?: string | null;
+    trigger_price?: string | null;
+  }) => brokerApi.post<{
+    status: string;
+    broker_order_id: string;
+    executed_quantity: number;
+    average_price: string | null;
+    executed_at: string | null;
+  }>('/orders/place', body),
+
+  // Zerodha OAuth
+  getZerodhaLoginUrl: (credentialId: string, clientId: string) =>
+    brokerApi.get<{ login_url: string; credential_id: string; client_id: string }>(
+      `/broker/zerodha/login?credential_id=${credentialId}&client_id=${clientId}`
+    ),
+
+  revokeZerodhaToken: (credentialId: string) =>
+    brokerApi.post(`/broker/zerodha/revoke/${credentialId}`),
+
+  // Live price ticker
+  subscribeSymbols: (symbols: string[]) =>
+    brokerApi.post<{ subscribed: string[] }>('/market/ticker/subscribe', symbols),
+  unsubscribeSymbols: (symbols: string[]) =>
+    brokerApi.delete<{ unsubscribed: string[] }>('/market/ticker/subscribe', { data: symbols }),
+  getWatchlist: () =>
+    brokerApi.get<{ symbols: string[] }>('/market/ticker/watchlist'),
 };

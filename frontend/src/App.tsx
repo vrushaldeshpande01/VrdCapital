@@ -1,6 +1,8 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { createTheme, ThemeProvider, CssBaseline } from '@mui/material';
-import { useAppSelector } from '@/store';
+import { useEffect } from 'react';
+import { useAppSelector, useAppDispatch } from '@/store';
+import { fetchCurrentUser } from '@/store/authSlice';
 import Layout from '@/components/Layout/Layout';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import LoginPage from '@/pages/Login';
@@ -12,11 +14,12 @@ import UsersPage from '@/pages/Users';
 import AuditLogsPage from '@/pages/AuditLogs';
 import SettingsPage from '@/pages/Settings';
 import OrdersPage from '@/pages/Orders';
-import BasketOrdersPage from '@/pages/BasketOrders';
 import ReportsPage from '@/pages/Reports';
 import NotificationsPage from '@/pages/Notifications';
 import ObservabilityPage from '@/pages/Observability';
 import TradingPage from '@/pages/Trading';
+import AlertsPage from '@/pages/Alerts';
+import MarketsPage from '@/pages/Markets';
 
 const theme = createTheme({
   palette: {
@@ -82,10 +85,24 @@ function PublicRoute({ children }: { children: React.ReactNode }) {
   return isAuthenticated ? <Navigate to="/dashboard" replace /> : <>{children}</>;
 }
 
+function AppBootstrap() {
+  const dispatch = useAppDispatch();
+  const isAuthenticated = useAppSelector((s) => s.auth.isAuthenticated);
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      dispatch(fetchCurrentUser());
+    }
+  }, [isAuthenticated, dispatch]);
+
+  return null;
+}
+
 export default function App() {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
+      <AppBootstrap />
       <Routes>
         <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
         <Route
@@ -101,11 +118,13 @@ export default function App() {
           <Route path="audit-logs" element={<ErrorBoundary><AuditLogsPage /></ErrorBoundary>} />
           <Route path="settings" element={<ErrorBoundary><SettingsPage /></ErrorBoundary>} />
           <Route path="orders" element={<ErrorBoundary><OrdersPage /></ErrorBoundary>} />
-          <Route path="basket-orders" element={<ErrorBoundary><BasketOrdersPage /></ErrorBoundary>} />
+          <Route path="basket-orders" element={<Navigate to="/trading" replace />} />
           <Route path="reports" element={<ErrorBoundary><ReportsPage /></ErrorBoundary>} />
           <Route path="notifications" element={<ErrorBoundary><NotificationsPage /></ErrorBoundary>} />
           <Route path="observability" element={<ErrorBoundary><ObservabilityPage /></ErrorBoundary>} />
           <Route path="trading" element={<ErrorBoundary><TradingPage /></ErrorBoundary>} />
+          <Route path="alerts" element={<ErrorBoundary><AlertsPage /></ErrorBoundary>} />
+          <Route path="markets" element={<ErrorBoundary><MarketsPage /></ErrorBoundary>} />
         </Route>
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>

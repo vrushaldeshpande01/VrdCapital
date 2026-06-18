@@ -153,7 +153,7 @@ export default function LoginPage() {
                 Username: <strong>admin</strong>
               </Typography>
               <Typography variant="caption" color="text.secondary" display="block">
-                Password: <strong>Admin@123456</strong>
+                Password: <strong>Admin@123</strong>
               </Typography>
             </Box>
           </CardContent>

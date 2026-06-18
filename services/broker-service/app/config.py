@@ -19,6 +19,11 @@ class Settings(BaseSettings):
 
     ALLOWED_ORIGINS: list[str] = ["*"]
 
+    # Zerodha Kite Connect app credentials (from https://kite.trade)
+    ZERODHA_API_KEY: str = ""
+    ZERODHA_API_SECRET: str = ""
+    ALPHA_VANTAGE_API_KEY: str = ""
+
     # Price sync interval in seconds
     PRICE_SYNC_INTERVAL: int = 300  # 5 minutes
 

@@ -11,16 +11,10 @@ import { useQuery } from '@tanstack/react-query';
 import { useAppSelector } from '@/store';
 import { clientsService } from '@/api/clients';
 import { portfolioService } from '@/api/portfolio';
+import { ordersService } from '@/api/orders';
+import type { Client } from '@/types';
 
 const SECTOR_COLORS = ['#1a237e', '#00897b', '#f57c00', '#c62828', '#6a1b9a', '#37474f', '#0277bd'];
-
-const RECENT_ORDERS = [
-  { id: 1, client: 'Rajesh Kumar', symbol: 'RELIANCE', type: 'BUY', qty: 50, price: 2485.60, status: 'EXECUTED', time: '10:32 AM' },
-  { id: 2, client: 'Priya Sharma', symbol: 'TCS', type: 'SELL', qty: 25, price: 3892.40, status: 'EXECUTED', time: '11:05 AM' },
-  { id: 3, client: 'Amit Patel', symbol: 'HDFCBANK', type: 'BUY', qty: 30, price: 1672.80, status: 'PENDING', time: '11:48 AM' },
-  { id: 4, client: 'Sneha Joshi', symbol: 'INFY', type: 'BUY', qty: 100, price: 1458.20, status: 'EXECUTED', time: '12:15 PM' },
-  { id: 5, client: 'Vikram Singh', symbol: 'WIPRO', type: 'SELL', qty: 75, price: 485.60, status: 'CANCELLED', time: '02:22 PM' },
-];
 
 function fmt(n: number | string | null | undefined, prefix = '₹') {
   if (n == null) return '—';
@@ -99,11 +93,21 @@ export default function DashboardPage() {
   });
 
   const { data: clientList } = useQuery({
-    queryKey: ['clients', 1, ''],
-    queryFn: () => clientsService.list({ page: 1, size: 1 }),
+    queryKey: ['clients-dashboard'],
+    queryFn: () => clientsService.list({ page: 1, size: 100 }),
     retry: 1,
   });
   const firstClientId = clientList?.items?.[0]?.id;
+  const clientNameMap = Object.fromEntries(
+    (clientList?.items ?? []).map((c: Client) => [c.id, c.full_name])
+  );
+
+  const { data: recentOrders, isLoading: ordersLoading } = useQuery({
+    queryKey: ['recent-orders'],
+    queryFn: () => ordersService.list({ page: 1, size: 5 }).then(r => r.data.items),
+    retry: 1,
+    refetchInterval: 30_000,
+  });
 
   const { data: history } = useQuery({
     queryKey: ['portfolio-history', firstClientId],
@@ -119,20 +123,11 @@ export default function DashboardPage() {
     retry: 1,
   });
 
-  const chartData = history && history.length > 0
-    ? history.map((s) => ({
-        date: new Date(s.snapshot_date).toLocaleDateString('en-IN', { month: 'short', day: 'numeric' }),
-        value: parseFloat(String(s.total_value)) / 1e5,
-        pnl: s.day_pnl ?? 0,
-      }))
-    : [
-        { date: 'Jan', value: 420, pnl: 0 }, { date: 'Feb', value: 450, pnl: 0 },
-        { date: 'Mar', value: 430, pnl: 0 }, { date: 'Apr', value: 490, pnl: 0 },
-        { date: 'May', value: 520, pnl: 0 }, { date: 'Jun', value: 560, pnl: 0 },
-        { date: 'Jul', value: 540, pnl: 0 }, { date: 'Aug', value: 590, pnl: 0 },
-        { date: 'Sep', value: 620, pnl: 0 }, { date: 'Oct', value: 680, pnl: 0 },
-        { date: 'Nov', value: 710, pnl: 0 }, { date: 'Dec', value: 750, pnl: 0 },
-      ];
+  const chartData = (history ?? []).map((s) => ({
+    date: new Date(s.snapshot_date).toLocaleDateString('en-IN', { month: 'short', day: 'numeric' }),
+    value: parseFloat(String(s.total_value)) / 1e5,
+    pnl: s.day_pnl ?? 0,
+  }));
 
   const sectorData = summary?.sector_allocation ?? [];
 
@@ -230,6 +225,11 @@ export default function DashboardPage() {
           <Card>
             <CardContent sx={{ p: 2.5 }}>
               <Typography variant="h6" fontWeight={600} gutterBottom>Portfolio Growth (₹ Lakh)</Typography>
+              {chartData.length === 0 ? (
+                <Box sx={{ height: 240, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Typography variant="body2" color="text.secondary">No portfolio snapshots yet.</Typography>
+                </Box>
+              ) : (
               <ResponsiveContainer width="100%" height={240}>
                 <AreaChart data={chartData}>
                   <defs>
@@ -245,6 +245,7 @@ export default function DashboardPage() {
                   <Area type="monotone" dataKey="value" stroke="#1a237e" strokeWidth={2.5} fill="url(#grad)" />
                 </AreaChart>
               </ResponsiveContainer>
+              )}
             </CardContent>
           </Card>
         </Grid>
@@ -324,38 +325,54 @@ export default function DashboardPage() {
       <Card>
         <CardContent sx={{ p: 2.5 }}>
           <Typography variant="h6" fontWeight={600} gutterBottom>Recent Orders</Typography>
-          <Box sx={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr>
-                  {['Client', 'Symbol', 'Type', 'Qty', 'Price', 'Status', 'Time'].map((h) => (
-                    <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontSize: 12, fontWeight: 700, color: '#666', borderBottom: '1px solid #eee' }}>
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {RECENT_ORDERS.map((order) => (
-                  <tr key={order.id} style={{ borderBottom: '1px solid #f5f5f5' }}>
-                    <td style={{ padding: '10px 12px', fontSize: 13 }}>{order.client}</td>
-                    <td style={{ padding: '10px 12px', fontSize: 13, fontWeight: 600 }}>{order.symbol}</td>
-                    <td style={{ padding: '10px 12px' }}>
-                      <Chip label={order.type} size="small" color={order.type === 'BUY' ? 'success' : 'error'}
-                        sx={{ height: 20, fontSize: 11, fontWeight: 700 }} />
-                    </td>
-                    <td style={{ padding: '10px 12px', fontSize: 13 }}>{order.qty}</td>
-                    <td style={{ padding: '10px 12px', fontSize: 13 }}>₹{order.price.toLocaleString('en-IN')}</td>
-                    <td style={{ padding: '10px 12px' }}>
-                      <Chip label={order.status} size="small" color={statusColor[order.status] || 'default'}
-                        variant="outlined" sx={{ height: 20, fontSize: 11 }} />
-                    </td>
-                    <td style={{ padding: '10px 12px', fontSize: 12, color: '#888' }}>{order.time}</td>
+          {ordersLoading ? (
+            <Box sx={{ py: 2 }}><Skeleton /><Skeleton /><Skeleton /></Box>
+          ) : !recentOrders || recentOrders.length === 0 ? (
+            <Typography variant="body2" color="text.secondary" sx={{ py: 2 }}>
+              No orders placed yet.
+            </Typography>
+          ) : (
+            <Box sx={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr>
+                    {['Client', 'Symbol', 'Type', 'Qty', 'Price', 'Status', 'Time'].map((h) => (
+                      <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontSize: 12, fontWeight: 700, color: '#666', borderBottom: '1px solid #eee' }}>
+                        {h}
+                      </th>
+                    ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </Box>
+                </thead>
+                <tbody>
+                  {recentOrders.map((order) => {
+                    const price = order.average_price ?? order.price;
+                    const time = new Date(order.placed_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+                    return (
+                      <tr key={order.id} style={{ borderBottom: '1px solid #f5f5f5' }}>
+                        <td style={{ padding: '10px 12px', fontSize: 13 }}>
+                          {clientNameMap[order.client_id] ?? order.client_id.slice(0, 8) + '…'}
+                        </td>
+                        <td style={{ padding: '10px 12px', fontSize: 13, fontWeight: 600 }}>{order.symbol}</td>
+                        <td style={{ padding: '10px 12px' }}>
+                          <Chip label={order.side} size="small" color={order.side === 'BUY' ? 'success' : 'error'}
+                            sx={{ height: 20, fontSize: 11, fontWeight: 700 }} />
+                        </td>
+                        <td style={{ padding: '10px 12px', fontSize: 13 }}>{order.quantity}</td>
+                        <td style={{ padding: '10px 12px', fontSize: 13 }}>
+                          {price ? `₹${Number(price).toLocaleString('en-IN', { maximumFractionDigits: 2 })}` : '—'}
+                        </td>
+                        <td style={{ padding: '10px 12px' }}>
+                          <Chip label={order.status} size="small" color={statusColor[order.status] || 'default'}
+                            variant="outlined" sx={{ height: 20, fontSize: 11 }} />
+                        </td>
+                        <td style={{ padding: '10px 12px', fontSize: 12, color: '#888' }}>{time}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </Box>
+          )}
         </CardContent>
       </Card>
     </Box>
