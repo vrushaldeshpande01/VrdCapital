@@ -1,0 +1,21 @@
+# Run to create ConfigMap from the existing dashboard JSON:
+#   kubectl create configmap vrdcapital-dashboards \
+#     --from-file=vrdcapital.json=deployment/monitoring/grafana/dashboards/vrdcapital.json \
+#     -n monitoring \
+#     --dry-run=client -o yaml | kubectl apply -f -
+#
+# The kube-prometheus-stack Grafana is configured in helm values to mount
+# this ConfigMap at /var/lib/grafana/dashboards/vrdcapital/
+#
+# To add more dashboards: add more --from-file entries or create additional ConfigMaps
+# and reference them in dashboardsConfigMaps in the Helm values.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vrdcapital-dashboards
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  vrdcapital.json: |
+    PLACEHOLDER_REPLACED_BY_INSTALL_SCRIPT

@@ -1,0 +1,112 @@
+# OpenTelemetry Collector — DaemonSet mode
+# Receives traces from FastAPI services (OTLP), exports to Prometheus (metrics) + Loki (logs)
+#
+# Install CRDs first:
+#   kubectl apply -f https://github.com/open-telemetry/opentelemetry-operator/releases/latest/download/opentelemetry-operator.yaml
+#
+# Then apply this file:
+#   kubectl apply -f deployment/monitoring/otel/otel-collector.yaml
+---
+apiVersion: opentelemetry.io/v1alpha1
+kind: OpenTelemetryCollector
+metadata:
+  name: vrdcapital-otel
+  namespace: vrdcapital
+spec:
+  mode: daemonset
+
+  config: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+
+      prometheus:
+        config:
+          scrape_configs:
+            - job_name: vrdcapital-otel-scrape
+              scrape_interval: 15s
+              kubernetes_sd_configs:
+                - role: pod
+                  namespaces:
+                    names: [vrdcapital]
+              relabel_configs:
+                - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+                  action: keep
+                  regex: "true"
+
+    processors:
+      batch:
+        timeout: 5s
+        send_batch_size: 1000
+
+      memory_limiter:
+        limit_mib: 256
+        spike_limit_mib: 64
+        check_interval: 5s
+
+      resource:
+        attributes:
+          - key: environment
+            value: production
+            action: insert
+          - key: project
+            value: vrdcapital
+            action: insert
+
+    exporters:
+      # Metrics → Prometheus (scraped by kube-prometheus-stack)
+      prometheus:
+        endpoint: "0.0.0.0:8889"
+        namespace: vrdcapital
+
+      # Logs → Loki
+      loki:
+        endpoint: http://loki.monitoring.svc.cluster.local:3100/loki/api/v1/push
+        default_labels_enabled:
+          exporter: false
+          job: true
+
+      # Debug — remove in production
+      logging:
+        loglevel: warn
+
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, batch, resource]
+          exporters: [logging]
+
+        metrics:
+          receivers: [otlp, prometheus]
+          processors: [memory_limiter, batch, resource]
+          exporters: [prometheus]
+
+        logs:
+          receivers: [otlp]
+          processors: [memory_limiter, batch, resource]
+          exporters: [loki]
+---
+# Service so FastAPI pods can send traces to the collector
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-collector
+  namespace: vrdcapital
+spec:
+  selector:
+    app.kubernetes.io/name: vrdcapital-otel-collector
+  ports:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: 4317
+    - name: otlp-http
+      port: 4318
+      targetPort: 4318
+    - name: metrics
+      port: 8889
+      targetPort: 8889

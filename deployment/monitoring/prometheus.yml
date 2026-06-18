@@ -1,39 +1,39 @@
-﻿global:
+global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
 scrape_configs:
   - job_name: auth-service
     static_configs:
-      - targets: ['auth-service:8000']
+      - targets: ['auth-service:8001']
     metrics_path: /metrics
 
   - job_name: client-service
     static_configs:
-      - targets: ['client-service:8000']
+      - targets: ['client-service:8002']
     metrics_path: /metrics
 
   - job_name: portfolio-service
     static_configs:
-      - targets: ['portfolio-service:8000']
+      - targets: ['portfolio-service:8003']
     metrics_path: /metrics
 
   - job_name: broker-service
     static_configs:
-      - targets: ['broker-service:8000']
+      - targets: ['broker-service:8004']
     metrics_path: /metrics
 
   - job_name: order-service
     static_configs:
-      - targets: ['order-service:8000']
+      - targets: ['order-service:8005']
     metrics_path: /metrics
 
   - job_name: notification-service
     static_configs:
-      - targets: ['notification-service:8000']
+      - targets: ['notification-service:8006']
     metrics_path: /metrics
 
   - job_name: report-service
     static_configs:
-      - targets: ['report-service:8000']
+      - targets: ['report-service:8007']
     metrics_path: /metrics
