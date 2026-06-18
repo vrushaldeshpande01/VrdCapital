@@ -1,12 +1,12 @@
-// Jenkinsfile for auth-service
-// Triggered automatically when changes are pushed to services/auth-service/**
+// Jenkinsfile for report-service
+// Triggered automatically when changes are pushed to services/report-service/**
 
 pipeline {
     agent any
 
     environment {
-        SERVICE_NAME  = 'auth-service'
-        SERVICE_PORT  = '8001'
+        SERVICE_NAME  = 'report-service'
+        SERVICE_PORT  = '8007'
         AWS_REGION    = 'ap-south-1'
         ECR_REGISTRY  = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
         IMAGE_NAME    = "${ECR_REGISTRY}/vrdcapital/${SERVICE_NAME}"

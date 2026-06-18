@@ -1,0 +1,146 @@
+// Jenkinsfile for frontend (React + Vite + nginx)
+
+pipeline {
+    agent any
+
+    environment {
+        SERVICE_NAME  = 'frontend'
+        AWS_REGION    = 'ap-south-1'
+        ECR_REGISTRY  = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+        IMAGE_NAME    = "${ECR_REGISTRY}/vrdcapital/${SERVICE_NAME}"
+        IMAGE_TAG     = "${GIT_COMMIT[0..7]}-${BUILD_NUMBER}"
+        OVERLAY_PATH  = "deployment/k8s/overlays/prod/kustomization.yaml"
+    }
+
+    options {
+        timeout(time: 20, unit: 'MINUTES')
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+        disableConcurrentBuilds()
+    }
+
+    stages {
+
+        stage('Checkout') {
+            steps { checkout scm }
+        }
+
+        stage('Install & Lint') {
+            steps {
+                dir('frontend') {
+                    sh '''
+                        npm ci --silent
+                        npx eslint src/ --ext .ts,.tsx --max-warnings=50 || true
+                    '''
+                }
+            }
+        }
+
+        stage('Type Check') {
+            steps {
+                dir('frontend') {
+                    sh 'npx tsc --noEmit || true'
+                }
+            }
+        }
+
+        stage('ECR Login') {
+            steps {
+                sh '''
+                    aws ecr get-login-password --region $AWS_REGION \
+                      | docker login --username AWS --password-stdin $ECR_REGISTRY
+                '''
+            }
+        }
+
+        stage('Build Image') {
+            steps {
+                sh '''
+                    docker build \
+                      --file frontend/Dockerfile \
+                      --tag ${IMAGE_NAME}:${IMAGE_TAG} \
+                      --tag ${IMAGE_NAME}:latest \
+                      --cache-from ${IMAGE_NAME}:latest \
+                      --build-arg BUILDKIT_INLINE_CACHE=1 \
+                      frontend
+                '''
+            }
+        }
+
+        stage('Push to ECR') {
+            when { branch 'main' }
+            steps {
+                sh '''
+                    docker push ${IMAGE_NAME}:${IMAGE_TAG}
+                    docker push ${IMAGE_NAME}:latest
+                '''
+            }
+        }
+
+        stage('Update Image Tag') {
+            when { branch 'main' }
+            steps {
+                sh '''
+                    kustomize edit set image \
+                      ${IMAGE_NAME}=${IMAGE_NAME}:${IMAGE_TAG} \
+                      --kustomization-file ${OVERLAY_PATH}
+                '''
+            }
+        }
+
+        stage('Commit GitOps') {
+            when { branch 'main' }
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'github-credentials',
+                    usernameVariable: 'GIT_USER',
+                    passwordVariable: 'GIT_TOKEN'
+                )]) {
+                    sh '''
+                        git config user.email "jenkins@vrdcapital.com"
+                        git config user.name "Jenkins CI"
+                        git add ${OVERLAY_PATH}
+                        git diff --cached --quiet || git commit -m "ci: update frontend to ${IMAGE_TAG} [skip ci]"
+                        git push https://${GIT_USER}:${GIT_TOKEN}@github.com/${GITHUB_REPO}.git HEAD:main
+                    '''
+                }
+            }
+        }
+
+        stage('ArgoCD Sync') {
+            when { branch 'main' }
+            steps {
+                sh '''
+                    argocd app sync ${SERVICE_NAME} \
+                      --server ${ARGOCD_SERVER} \
+                      --auth-token ${ARGOCD_TOKEN} \
+                      --timeout 120 \
+                      --prune || true
+                '''
+            }
+        }
+
+        stage('Verify Rollout') {
+            when { branch 'main' }
+            steps {
+                sh '''
+                    kubectl rollout status deployment/${SERVICE_NAME} \
+                      -n vrdcapital \
+                      --timeout=180s
+                '''
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "SUCCESS: frontend:${IMAGE_TAG} deployed to EKS"
+        }
+        failure {
+            echo "FAILED: frontend build ${BUILD_NUMBER} — check logs"
+        }
+        always {
+            sh 'docker image prune -f || true'
+            cleanWs()
+        }
+    }
+}

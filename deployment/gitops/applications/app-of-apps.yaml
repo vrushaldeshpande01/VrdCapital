@@ -1,0 +1,26 @@
+# App of Apps — single ArgoCD Application that manages all other Applications.
+# Apply this once: kubectl apply -f deployment/gitops/applications/app-of-apps.yaml
+# ArgoCD then discovers and syncs all individual service Applications automatically.
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: vrdcapital-apps
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/YOUR_GITHUB_USERNAME/portfolio-management-platform.git
+    targetRevision: main
+    path: deployment/gitops/applications
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

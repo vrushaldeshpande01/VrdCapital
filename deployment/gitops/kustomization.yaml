@@ -1,24 +1,15 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-namespace: vrdcapital
+# This file is used by ArgoCD App of Apps to discover all service Applications.
+# ArgoCD watches this directory and applies everything listed here.
 
 resources:
-  - ../k8s/base/namespace.yaml
-  - ../k8s/base/auth-service.yaml
-  - ../k8s/base/client-service.yaml
-  - ../k8s/base/ingress.yaml
-
-configMapGenerator:
-  - name: vrdcapital-config
-    literals:
-      - ENVIRONMENT=production
-      - LOG_LEVEL=INFO
-
-images:
-  - name: auth-service
-    newName: YOUR_ECR_REGISTRY/vrdcapital/auth-service
-    newTag: latest
-  - name: client-service
-    newName: YOUR_ECR_REGISTRY/vrdcapital/client-service
-    newTag: latest
+  - applications/auth-service.yaml
+  - applications/client-service.yaml
+  - applications/portfolio-service.yaml
+  - applications/broker-service.yaml
+  - applications/order-service.yaml
+  - applications/notification-service.yaml
+  - applications/report-service.yaml
+  - applications/frontend.yaml
