@@ -38,6 +38,27 @@ docker-compose.override.yml
 *.p12
 *.pfx
 
+# Terraform — never commit state or real variable values
+terraform/.terraform/
+terraform/**/.terraform/
+terraform/environments/prod/terraform.tfvars
+terraform/environments/staging/terraform.tfvars
+*.tfstate
+*.tfstate.backup
+*.tfvars
+!*.tfvars.example
+terraform/.terraform.lock.hcl
+terraform/**/.terraform.lock.hcl
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# AWS credentials / kubeconfig
+.aws/credentials
+kubeconfig
+*.kubeconfig
+
 # Logs
 *.log
 logs/

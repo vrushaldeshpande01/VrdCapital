@@ -54,3 +54,13 @@ output "jenkins_ssh" {
   description = "SSH command for Jenkins EC2"
   value       = "ssh -i ~/.ssh/${var.jenkins_key_name}.pem ubuntu@${module.jenkins.public_ip}"
 }
+
+output "irsa_external_secrets_role_arn" {
+  description = "IRSA role ARN for ExternalSecrets — annotate vrdcapital-sa with this"
+  value       = module.irsa.external_secrets_role_arn
+}
+
+output "irsa_report_s3_role_arn" {
+  description = "IRSA role ARN for report-service S3 access — annotate report-service-sa with this"
+  value       = module.irsa.report_s3_role_arn
+}

@@ -142,4 +142,15 @@ module "jenkins" {
   eks_cluster_name  = module.eks.cluster_name
 }
 
+module "irsa" {
+  source = "../../modules/irsa"
+
+  project             = var.project
+  environment         = var.environment
+  aws_account_id      = data.aws_caller_identity.current.account_id
+  aws_region          = var.aws_region
+  oidc_provider_url   = module.eks.oidc_issuer_url
+  reports_bucket_name = module.s3.bucket_name
+}
+
 data "aws_caller_identity" "current" {}

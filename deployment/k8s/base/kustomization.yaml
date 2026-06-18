@@ -16,5 +16,6 @@ resources:
   - notification-service.yaml
   - report-service.yaml
   - frontend.yaml
+  - network-policies.yaml
   - hpa.yaml
   - ingress.yaml

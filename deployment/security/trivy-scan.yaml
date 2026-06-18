@@ -1,0 +1,111 @@
+# Trivy CronJob — daily ECR image vulnerability scanning
+# Runs at 02:00 IST (20:30 UTC previous day) every day.
+# Results are logged (viewable via kubectl logs) and can be shipped to Loki.
+#
+# Apply: kubectl apply -f deployment/security/trivy-scan.yaml
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: trivy-scanner-sa
+  namespace: vrdcapital
+  annotations:
+    # IRSA: needs ECR:GetAuthorizationToken + ECR:BatchGetImage
+    eks.amazonaws.com/role-arn: arn:aws:iam::ACCOUNT_ID:role/vrdcapital-prod-ecr-read
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: trivy-scanner
+  namespace: vrdcapital
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: trivy-scanner
+  namespace: vrdcapital
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: trivy-scanner
+subjects:
+  - kind: ServiceAccount
+    name: trivy-scanner-sa
+    namespace: vrdcapital
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: trivy-ecr-scan
+  namespace: vrdcapital
+spec:
+  schedule: "30 20 * * *"    # 02:00 IST daily
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: trivy-scanner-sa
+          restartPolicy: OnFailure
+          containers:
+            - name: trivy
+              image: aquasec/trivy:latest
+              imagePullPolicy: Always
+              env:
+                - name: AWS_REGION
+                  value: "ap-south-1"
+                - name: ECR_REGISTRY
+                  value: "ACCOUNT_ID.dkr.ecr.ap-south-1.amazonaws.com"
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -e
+
+                  SERVICES="auth-service client-service portfolio-service broker-service order-service notification-service report-service frontend"
+                  REGISTRY="${ECR_REGISTRY}"
+                  FAILED=0
+
+                  # Authenticate to ECR
+                  aws ecr get-login-password --region "${AWS_REGION}" \
+                    | trivy registry login --username AWS --password-stdin "${REGISTRY}"
+
+                  echo "================================================"
+                  echo "Trivy ECR Scan — $(date)"
+                  echo "================================================"
+
+                  for svc in ${SERVICES}; do
+                    IMAGE="${REGISTRY}/vrdcapital/${svc}:latest"
+                    echo ""
+                    echo "── Scanning: ${svc} ──"
+                    if trivy image \
+                      --severity HIGH,CRITICAL \
+                      --exit-code 0 \
+                      --format table \
+                      "${IMAGE}"; then
+                      echo "  ${svc}: PASS"
+                    else
+                      echo "  ${svc}: VULNERABILITIES FOUND"
+                      FAILED=$((FAILED + 1))
+                    fi
+                  done
+
+                  echo ""
+                  echo "================================================"
+                  echo "Scan complete. Failed: ${FAILED}/${#SERVICES[@]}"
+                  echo "================================================"
+
+                  # Exit non-zero so Prometheus alert fires on repeated failures
+                  [ "${FAILED}" -eq 0 ]
+              resources:
+                requests:
+                  cpu: "250m"
+                  memory: "256Mi"
+                limits:
+                  cpu: "500m"
+                  memory: "512Mi"

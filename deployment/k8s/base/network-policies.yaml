@@ -1,0 +1,413 @@
+# Granular NetworkPolicies — least-privilege inter-service communication
+# Each service only accepts traffic from the services that legitimately call it.
+#
+# Call graph (derived from service dependencies):
+#   frontend        → auth, client, portfolio, broker, order, report
+#   auth            → (none — called by everyone, calls nobody)
+#   client          → auth
+#   portfolio       → auth, broker
+#   broker          → auth
+#   order           → auth, broker, portfolio, notification
+#   notification    → auth
+#   report          → auth, portfolio
+#   ALL services    ← monitoring namespace (Prometheus scraping)
+#   ALL services    ← ingress-nginx / aws-load-balancer-controller (ALB ingress)
+
+# ── auth-service ───────────────────────────────────────────────────────────────
+# Accepts from: every service in vrdcapital namespace + ALB + monitoring
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: auth-service-netpol
+  namespace: vrdcapital
+spec:
+  podSelector:
+    matchLabels:
+      app: auth-service
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vrdcapital
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 8001
+          protocol: TCP
+  egress:
+    - ports:
+        - port: 5432    # RDS PostgreSQL
+          protocol: TCP
+        - port: 6379    # ElastiCache Redis
+          protocol: TCP
+        - port: 443     # AWS SDK calls
+          protocol: TCP
+        - port: 53      # DNS
+          protocol: UDP
+
+# ── client-service ─────────────────────────────────────────────────────────────
+# Accepts from: frontend + ALB + monitoring
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: client-service-netpol
+  namespace: vrdcapital
+spec:
+  podSelector:
+    matchLabels:
+      app: client-service
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: frontend
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 8002
+          protocol: TCP
+  egress:
+    - ports:
+        - port: 5432
+          protocol: TCP
+        - port: 6379
+          protocol: TCP
+        - port: 8001    # auth-service
+          protocol: TCP
+        - port: 443
+          protocol: TCP
+        - port: 53
+          protocol: UDP
+
+# ── portfolio-service ──────────────────────────────────────────────────────────
+# Accepts from: frontend, order-service, report-service + monitoring
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: portfolio-service-netpol
+  namespace: vrdcapital
+spec:
+  podSelector:
+    matchLabels:
+      app: portfolio-service
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: frontend
+        - podSelector:
+            matchLabels:
+              app: order-service
+        - podSelector:
+            matchLabels:
+              app: report-service
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 8003
+          protocol: TCP
+  egress:
+    - ports:
+        - port: 5432
+          protocol: TCP
+        - port: 6379
+          protocol: TCP
+        - port: 8001    # auth-service
+          protocol: TCP
+        - port: 8004    # broker-service (for sync)
+          protocol: TCP
+        - port: 443
+          protocol: TCP
+        - port: 53
+          protocol: UDP
+
+# ── broker-service ─────────────────────────────────────────────────────────────
+# Accepts from: frontend, portfolio-service, order-service + monitoring
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: broker-service-netpol
+  namespace: vrdcapital
+spec:
+  podSelector:
+    matchLabels:
+      app: broker-service
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: frontend
+        - podSelector:
+            matchLabels:
+              app: portfolio-service
+        - podSelector:
+            matchLabels:
+              app: order-service
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 8004
+          protocol: TCP
+  egress:
+    - ports:
+        - port: 5432
+          protocol: TCP
+        - port: 6379
+          protocol: TCP
+        - port: 8001    # auth-service
+          protocol: TCP
+        - port: 443     # Zerodha API + AWS SDK
+          protocol: TCP
+        - port: 53
+          protocol: UDP
+
+# ── order-service ──────────────────────────────────────────────────────────────
+# Accepts from: frontend + monitoring
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: order-service-netpol
+  namespace: vrdcapital
+spec:
+  podSelector:
+    matchLabels:
+      app: order-service
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: frontend
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 8005
+          protocol: TCP
+  egress:
+    - ports:
+        - port: 5432
+          protocol: TCP
+        - port: 6379
+          protocol: TCP
+        - port: 8001    # auth-service
+          protocol: TCP
+        - port: 8003    # portfolio-service
+          protocol: TCP
+        - port: 8004    # broker-service
+          protocol: TCP
+        - port: 8006    # notification-service
+          protocol: TCP
+        - port: 5672    # RabbitMQ AMQP
+          protocol: TCP
+        - port: 443
+          protocol: TCP
+        - port: 53
+          protocol: UDP
+
+# ── notification-service ───────────────────────────────────────────────────────
+# Accepts from: order-service + monitoring (no frontend direct access)
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: notification-service-netpol
+  namespace: vrdcapital
+spec:
+  podSelector:
+    matchLabels:
+      app: notification-service
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: order-service
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 8006
+          protocol: TCP
+  egress:
+    - ports:
+        - port: 5432
+          protocol: TCP
+        - port: 6379
+          protocol: TCP
+        - port: 8001    # auth-service
+          protocol: TCP
+        - port: 5672    # RabbitMQ AMQP (consuming notifications)
+          protocol: TCP
+        - port: 587     # SMTP for email notifications
+          protocol: TCP
+        - port: 443
+          protocol: TCP
+        - port: 53
+          protocol: UDP
+
+# ── report-service ─────────────────────────────────────────────────────────────
+# Accepts from: frontend + monitoring
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: report-service-netpol
+  namespace: vrdcapital
+spec:
+  podSelector:
+    matchLabels:
+      app: report-service
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: frontend
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 8007
+          protocol: TCP
+  egress:
+    - ports:
+        - port: 5432
+          protocol: TCP
+        - port: 6379
+          protocol: TCP
+        - port: 8001    # auth-service
+          protocol: TCP
+        - port: 8003    # portfolio-service
+          protocol: TCP
+        - port: 443     # S3 for report upload
+          protocol: TCP
+        - port: 53
+          protocol: UDP
+
+# ── frontend ───────────────────────────────────────────────────────────────────
+# Accepts from: public internet (via ALB) + monitoring
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: frontend-netpol
+  namespace: vrdcapital
+spec:
+  podSelector:
+    matchLabels:
+      app: frontend
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - port: 80
+          protocol: TCP
+  egress:
+    - ports:
+        - port: 8001
+          protocol: TCP
+        - port: 8002
+          protocol: TCP
+        - port: 8003
+          protocol: TCP
+        - port: 8004
+          protocol: TCP
+        - port: 8005
+          protocol: TCP
+        - port: 8007
+          protocol: TCP
+        - port: 53
+          protocol: UDP
+
+# ── rabbitmq ───────────────────────────────────────────────────────────────────
+# Accepts from: order-service and notification-service only
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: rabbitmq-netpol
+  namespace: vrdcapital
+spec:
+  podSelector:
+    matchLabels:
+      app: rabbitmq
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: order-service
+        - podSelector:
+            matchLabels:
+              app: notification-service
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - port: 5672    # AMQP
+          protocol: TCP
+        - port: 15672   # Management UI (monitoring only)
+          protocol: TCP
+  egress:
+    - ports:
+        - port: 53
+          protocol: UDP

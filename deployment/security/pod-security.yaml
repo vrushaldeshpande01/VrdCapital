@@ -1,0 +1,32 @@
+# Pod Security Standards — applied at namespace level.
+# These labels instruct the Kubernetes admission controller to enforce the
+# "restricted" policy on the vrdcapital namespace.
+#
+# "restricted" requires: non-root, read-only root filesystem, no privilege escalation,
+# no host namespaces, seccompProfile set.
+#
+# All VrdCapital Deployments already set runAsNonRoot: true (uid 1001) and
+# allowPrivilegeEscalation: false — they are compatible with "restricted".
+#
+# Apply as a patch (do not replace the whole namespace):
+#   kubectl label namespace vrdcapital \
+#     pod-security.kubernetes.io/enforce=restricted \
+#     pod-security.kubernetes.io/enforce-version=latest \
+#     pod-security.kubernetes.io/warn=restricted \
+#     pod-security.kubernetes.io/warn-version=latest \
+#     pod-security.kubernetes.io/audit=restricted \
+#     pod-security.kubernetes.io/audit-version=latest
+#
+# Or apply this manifest:
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: vrdcapital
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/audit-version: latest
