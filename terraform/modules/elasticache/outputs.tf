@@ -1,5 +1,9 @@
 output "endpoint" {
-  value     = aws_elasticache_replication_group.main.primary_endpoint_address
-  sensitive = true
+  description = "ElastiCache Redis primary endpoint"
+  value       = aws_elasticache_replication_group.main.primary_endpoint_address
 }
-output "port" { value = 6379 }
+
+output "port" {
+  description = "Redis port"
+  value       = 6379
+}

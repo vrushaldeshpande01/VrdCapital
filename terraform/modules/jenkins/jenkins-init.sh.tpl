@@ -40,11 +40,11 @@ curl -fsSL "https://dl.k8s.io/release/$${KUBECTL_VERSION}/bin/linux/amd64/kubect
 chmod +x /usr/local/bin/kubectl
 
 # ── Configure kubeconfig for EKS (so Jenkins can run kubectl) ─────────────────
+mkdir -p /var/lib/jenkins/.kube
 aws eks update-kubeconfig \
   --name "${eks_cluster_name}" \
   --region "${aws_region}" \
   --kubeconfig /var/lib/jenkins/.kube/config
-mkdir -p /var/lib/jenkins/.kube
 chown -R jenkins:jenkins /var/lib/jenkins/.kube
 
 # ── ECR login helper ──────────────────────────────────────────────────────────
