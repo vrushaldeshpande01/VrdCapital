@@ -62,11 +62,3 @@ kubeconfig
 # Logs
 *.log
 logs/
-
-.env
-.env.local
-frontend/dist/
-
-.env
-.env.local
-frontend/dist/
