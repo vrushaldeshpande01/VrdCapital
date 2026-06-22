@@ -70,7 +70,7 @@ kubectl get nodes   # verify nodes are Ready
 
 ---
 
-## Step 4 — Install ALB Ingress Controller
+## Step 4 — Install ALB Ingress Controller + Cluster Autoscaler
 
 Required before applying Kubernetes manifests — the Ingress resource needs this controller.
 
@@ -89,6 +89,14 @@ helm upgrade --install aws-load-balancer-controller \
 ```
 
 ---
+
+Install Cluster Autoscaler (scales EC2 nodes when pods are Pending):
+```bash
+export AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+export CLUSTER_NAME=$(terraform -chdir=terraform/environments/prod output -raw eks_cluster_name)
+export AWS_REGION=ap-south-1
+bash deployment/k8s/cluster-autoscaler/install-cluster-autoscaler.sh
+```
 
 ## Step 5 — Track 5: Security Setup (ExternalSecrets + NetworkPolicies)
 

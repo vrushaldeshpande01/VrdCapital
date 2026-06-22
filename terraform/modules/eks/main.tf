@@ -96,7 +96,12 @@ resource "aws_eks_node_group" "main" {
     role = "worker"
   }
 
-  tags = { Name = "${local.name_prefix}-node-group" }
+  tags = {
+    Name = "${local.name_prefix}-node-group"
+    # Required for Cluster Autoscaler auto-discovery
+    "k8s.io/cluster-autoscaler/enabled"              = "true"
+    "k8s.io/cluster-autoscaler/${var.cluster_name}"  = "owned"
+  }
 }
 
 # ── OIDC Provider (needed for IRSA — IAM Roles for Service Accounts) ─────────

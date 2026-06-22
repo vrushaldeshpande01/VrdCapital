@@ -42,7 +42,7 @@ resource "aws_elasticache_replication_group" "main" {
   parameter_group_name = "default.redis7"
   engine_version       = "7.1"
 
-  num_cache_clusters   = 1
+  num_cache_clusters   = 2
 
   subnet_group_name    = aws_elasticache_subnet_group.main.name
   security_group_ids   = [aws_security_group.redis.id]
@@ -51,7 +51,7 @@ resource "aws_elasticache_replication_group" "main" {
   transit_encryption_enabled  = true
   auth_token                  = var.auth_token
 
-  automatic_failover_enabled   = false
+  automatic_failover_enabled   = true
 
   tags = { Name = "${local.name_prefix}-redis" }
 }
