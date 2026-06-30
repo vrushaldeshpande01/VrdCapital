@@ -1,0 +1,326 @@
+// VrdCapital — Infrastructure Pipeline
+// Provisions or destroys all AWS resources via Terraform.
+//
+// Prerequisites in Jenkins:
+//   Credentials → AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY (Secret text)
+//   Credentials → github-credentials (Username + PAT)
+//   Tools       → Terraform 1.6+ installed (name: "terraform")
+
+pipeline {
+
+    agent any
+
+    parameters {
+        choice(
+            name: 'terraformAction',
+            choices: ['apply', 'destroy'],
+            description: '''Choose action:
+  apply   → Provision all AWS infrastructure (VPC, EKS, RDS, Redis, ECR, S3, Jenkins, Secrets)
+  destroy → Tear down all infrastructure and stop all billing'''
+        )
+        string(
+            name: 'TF_VAR_FILE',
+            defaultValue: 'terraform.tfvars',
+            description: 'Terraform variables file name (must exist in terraform/environments/prod/)'
+        )
+    }
+
+    environment {
+        AWS_ACCESS_KEY_ID     = credentials('AWS_ACCESS_KEY_ID')
+        AWS_SECRET_ACCESS_KEY = credentials('AWS_SECRET_ACCESS_KEY')
+        AWS_DEFAULT_REGION    = 'ap-south-1'
+        TF_DIR                = 'terraform/environments/prod'
+        TF_IN_AUTOMATION      = '1'
+    }
+
+    options {
+        timeout(time: 60, unit: 'MINUTES')
+        ansiColor('xterm')
+        timestamps()
+    }
+
+    stages {
+
+        // ── Checkout ──────────────────────────────────────────────────────────
+        stage('Checkout') {
+            steps {
+                git url: 'https://github.com/vrushaldeshpande01/VrdCapital.git',
+                    branch: 'main',
+                    credentialsId: 'github-credentials'
+                echo "Repository checked out. Action: ${params.terraformAction}"
+            }
+        }
+
+        // ══════════════════════════════════════════════════════════════════════
+        // APPLY FLOW
+        // ══════════════════════════════════════════════════════════════════════
+
+        stage('Bootstrap: S3 State + DynamoDB Lock') {
+            when { expression { params.terraformAction == 'apply' } }
+            steps {
+                echo "Creating Terraform remote state bucket and lock table..."
+                sh '''
+                    chmod +x terraform/bootstrap.sh
+                    bash terraform/bootstrap.sh
+                '''
+            }
+        }
+
+        stage('Init') {
+            when { expression { params.terraformAction == 'apply' } }
+            steps {
+                sh "cd ${TF_DIR} && terraform init -input=false"
+            }
+        }
+
+        stage('Validate') {
+            when { expression { params.terraformAction == 'apply' } }
+            steps {
+                sh "cd ${TF_DIR} && terraform validate"
+                echo "Terraform configuration is valid."
+            }
+        }
+
+        stage('Plan') {
+            when { expression { params.terraformAction == 'apply' } }
+            steps {
+                sh """
+                    cd ${TF_DIR}
+                    terraform plan \
+                        -var-file=${params.TF_VAR_FILE} \
+                        -input=false \
+                        -out=tfplan
+                    terraform show -no-color tfplan > tfplan.txt
+                """
+                echo "Plan complete. Review below before approving."
+            }
+        }
+
+        stage('Plan: Review & Approve') {
+            when { expression { params.terraformAction == 'apply' } }
+            steps {
+                script {
+                    def plan = readFile "${TF_DIR}/tfplan.txt"
+                    input(
+                        message: 'Review the Terraform plan. Approve to provision all AWS resources.',
+                        parameters: [
+                            text(
+                                name: 'TerraformPlan',
+                                description: 'Terraform Plan Output',
+                                defaultValue: plan
+                            )
+                        ]
+                    )
+                }
+            }
+        }
+
+        stage('Apply') {
+            when { expression { params.terraformAction == 'apply' } }
+            steps {
+                sh "cd ${TF_DIR} && terraform apply -input=false tfplan"
+                echo "All AWS resources provisioned successfully."
+            }
+        }
+
+        stage('Apply: Show Outputs') {
+            when { expression { params.terraformAction == 'apply' } }
+            steps {
+                sh """
+                    echo "================================================"
+                    echo " VrdCapital Infrastructure — Key Outputs"
+                    echo "================================================"
+                    cd ${TF_DIR}
+                    terraform output
+                    echo ""
+                    echo "Next steps:"
+                    echo "  1. aws eks update-kubeconfig --name \$(terraform output -raw eks_cluster_name) --region ap-south-1"
+                    echo "  2. kubectl get nodes"
+                    echo "  3. bash deployment/security/install-security.sh"
+                    echo "  4. kubectl apply -k deployment/k8s/overlays/prod"
+                """
+            }
+        }
+
+        // ══════════════════════════════════════════════════════════════════════
+        // DESTROY FLOW
+        // ══════════════════════════════════════════════════════════════════════
+
+        stage('Destroy: Confirm') {
+            when { expression { params.terraformAction == 'destroy' } }
+            steps {
+                script {
+                    input(
+                        message: '''⚠️  WARNING: This will DESTROY all VrdCapital AWS infrastructure.
+All data in RDS and ElastiCache will be permanently deleted.
+This cannot be undone. Are you sure?''',
+                        ok: 'Yes, destroy everything'
+                    )
+                }
+            }
+        }
+
+        stage('Destroy: Init') {
+            when { expression { params.terraformAction == 'destroy' } }
+            steps {
+                sh "cd ${TF_DIR} && terraform init -input=false"
+            }
+        }
+
+        stage('Destroy: Pre-cleanup — K8s Resources') {
+            when { expression { params.terraformAction == 'destroy' } }
+            steps {
+                script {
+                    // Configure kubectl — ignore failure if EKS is already gone
+                    sh '''
+                        CLUSTER=$(cd ''' + TF_DIR + ''' && terraform output -raw eks_cluster_name 2>/dev/null || echo "")
+                        if [ -n "$CLUSTER" ]; then
+                            echo "Configuring kubectl for cluster: $CLUSTER"
+                            aws eks update-kubeconfig --name "$CLUSTER" --region ap-south-1 || true
+
+                            echo "Deleting Kubernetes workloads (releases ALB)..."
+                            kubectl delete -k deployment/k8s/overlays/prod --ignore-not-found --timeout=60s || true
+                            kubectl delete namespace vrdcapital      --ignore-not-found --timeout=90s || true
+                            kubectl delete namespace monitoring       --ignore-not-found --timeout=60s || true
+                            kubectl delete namespace argocd          --ignore-not-found --timeout=60s || true
+                            kubectl delete namespace external-secrets --ignore-not-found --timeout=60s || true
+
+                            echo "Uninstalling Helm releases..."
+                            helm uninstall aws-load-balancer-controller -n kube-system --ignore-not-found 2>/dev/null || true
+                            helm uninstall cluster-autoscaler           -n kube-system --ignore-not-found 2>/dev/null || true
+                            helm uninstall kube-prometheus-stack        -n monitoring  --ignore-not-found 2>/dev/null || true
+                            helm uninstall loki                         -n monitoring  --ignore-not-found 2>/dev/null || true
+
+                            echo "Waiting 30s for ALB and ENIs to be released by AWS..."
+                            sleep 30
+                        else
+                            echo "No EKS cluster found in state — skipping K8s cleanup."
+                        fi
+                    '''
+                }
+            }
+        }
+
+        stage('Destroy: Pre-cleanup — RDS Deletion Protection') {
+            when { expression { params.terraformAction == 'destroy' } }
+            steps {
+                sh '''
+                    DB_ID="vrdcapital-prod-postgres"
+                    STATUS=$(aws rds describe-db-instances \
+                        --db-instance-identifier "$DB_ID" \
+                        --query "DBInstances[0].DBInstanceStatus" \
+                        --output text --region ap-south-1 2>/dev/null || echo "not-found")
+
+                    if [ "$STATUS" != "not-found" ]; then
+                        echo "Disabling RDS deletion protection on $DB_ID..."
+                        aws rds modify-db-instance \
+                            --db-instance-identifier "$DB_ID" \
+                            --no-deletion-protection \
+                            --apply-immediately \
+                            --region ap-south-1
+                        echo "Waiting 15s for modification to apply..."
+                        sleep 15
+                    else
+                        echo "RDS instance not found — skipping."
+                    fi
+                '''
+            }
+        }
+
+        stage('Destroy: Pre-cleanup — Empty S3 Bucket') {
+            when { expression { params.terraformAction == 'destroy' } }
+            steps {
+                sh '''
+                    BUCKET=$(cd ''' + TF_DIR + ''' && terraform output -raw s3_bucket_name 2>/dev/null || echo "")
+                    if [ -n "$BUCKET" ]; then
+                        echo "Emptying S3 bucket: $BUCKET"
+                        aws s3 rm s3://$BUCKET --recursive --region ap-south-1 || true
+                    else
+                        echo "No S3 bucket found in outputs — skipping."
+                    fi
+                '''
+            }
+        }
+
+        stage('Destroy') {
+            when { expression { params.terraformAction == 'destroy' } }
+            steps {
+                sh """
+                    cd ${TF_DIR}
+                    terraform destroy \
+                        -var-file=${params.TF_VAR_FILE} \
+                        -input=false \
+                        -auto-approve
+                """
+                echo "All AWS resources destroyed. Billing stopped."
+            }
+        }
+
+        stage('Destroy: Cleanup Bootstrap (Optional)') {
+            when { expression { params.terraformAction == 'destroy' } }
+            steps {
+                script {
+                    def destroyBootstrap = input(
+                        message: 'Also delete Terraform state bucket and DynamoDB lock table? (Only do this if you are done with the project permanently)',
+                        parameters: [
+                            choice(
+                                name: 'deleteBootstrap',
+                                choices: ['no', 'yes'],
+                                description: 'Delete S3 state bucket + DynamoDB lock table?'
+                            )
+                        ]
+                    )
+                    if (destroyBootstrap == 'yes') {
+                        sh '''
+                            echo "Deleting Terraform state bucket..."
+                            aws s3 rm s3://vrdcapital-terraform-state --recursive --region ap-south-1 || true
+                            aws s3 rb s3://vrdcapital-terraform-state --region ap-south-1 || true
+
+                            echo "Deleting DynamoDB lock table..."
+                            aws dynamodb delete-table \
+                                --table-name vrdcapital-terraform-locks \
+                                --region ap-south-1 || true
+
+                            echo "Bootstrap resources deleted."
+                        '''
+                    } else {
+                        echo "Bootstrap resources kept. You can re-apply infrastructure later."
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            script {
+                if (params.terraformAction == 'apply') {
+                    echo """
+================================================
+ Infrastructure APPLY complete!
+ All 58 AWS resources are provisioned.
+ Next: run kubectl apply -k deployment/k8s/overlays/prod
+================================================"""
+                } else {
+                    echo """
+================================================
+ Infrastructure DESTROY complete!
+ All AWS resources deleted. Billing stopped.
+================================================"""
+                }
+            }
+        }
+        failure {
+            echo """
+Pipeline FAILED. Check the stage logs above.
+If destroy failed mid-way, check AWS Console for:
+  - VPC with attached ENIs (from ALB)
+  - RDS with deletion protection still on
+  - Non-empty S3 buckets
+and clean them manually before retrying."""
+        }
+        always {
+            cleanWs()
+        }
+    }
+}
